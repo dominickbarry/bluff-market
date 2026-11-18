@@ -180,6 +180,13 @@
 
   .footer-btns { display: flex; gap: 12px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
   .menu-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .diff-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: center; margin-bottom: 2px; }
+  .diff-label { font-size: 12px; opacity: .7; letter-spacing: 1px; }
+  .diff-btn { font-size: 13px; padding: 5px 14px; background: linear-gradient(#2a3a5c,#1b2740); color: #cdd8ee;
+    border: 1px solid #46598a; border-radius: 7px; box-shadow: none; }
+  .diff-btn:active { transform: translateY(1px); }
+  .diff-btn.sel { background: linear-gradient(#ffd479,#e6a021); color: #2a1600; border-color: #a86e00; font-weight: 900; }
+  .diff-blurb { font-size: 11px; opacity: .6; font-style: italic; min-width: 150px; text-align: left; }
   .stats-line { font-size: 12px; opacity: .85; margin-top: 10px; color: #cdd8ee; }
   .stats-line b { color: #ffd479; }
   .record-note { font-size: 13px; margin: 2px auto 4px; color: #7dff9b; font-weight: bold; min-height: 18px; }
@@ -210,6 +217,13 @@
         You and 3 rivals fight over fighters at a <b>live timed auction</b> &mdash; the clock resets with every raise, so hold
         your nerve. <b>Your gold is secret</b>, so bluff: scare rivals off early or snipe at the buzzer. Matching unit types
         unlock <b>synergy bonuses</b>. Then your squads clash in an animated battle. Most points after 3 rounds takes the crown.
+      </div>
+      <div class="diff-row" id="diffRow">
+        <span class="diff-label">Difficulty:</span>
+        <button type="button" class="diff-btn" data-diff="easy">Easy</button>
+        <button type="button" class="diff-btn" data-diff="normal">Normal</button>
+        <button type="button" class="diff-btn" data-diff="hard">Hard</button>
+        <span class="diff-blurb" id="diffBlurb"></span>
       </div>
       <div class="menu-row">
         <button id="btnStart" type="button">START</button>
@@ -397,11 +411,27 @@
            (stats.streak >= 2 ? ` · on a <b>${stats.streak}</b>-win streak!` : "");
   }
 
+  // ---------- difficulty ----------
+  // Scales two ALREADY-TUNED knobs: the player's starting gold and the rivals'
+  // bid aggression. Normal = the balanced defaults (unchanged, ~30% solo win).
+  // Easy gives you more gold + calmer rivals; Hard does the opposite.
+  const DIFFICULTY = {
+    easy:   { label: "Easy",   youGold: 1.30, aiBidMul: 0.85, blurb: "more gold, calmer rivals" },
+    normal: { label: "Normal", youGold: 1.00, aiBidMul: 1.00, blurb: "the balanced default" },
+    hard:   { label: "Hard",   youGold: 0.80, aiBidMul: 1.15, blurb: "less gold, hungrier rivals" },
+  };
+  let difficulty = "normal";
+  try { const d = localStorage.getItem("bluffMarket.difficulty"); if (d && DIFFICULTY[d]) difficulty = d; } catch (e) {}
+  function setDifficulty(d) { if (DIFFICULTY[d]) { difficulty = d; try { localStorage.setItem("bluffMarket.difficulty", d); } catch (e) {} } }
+  function diff() { return DIFFICULTY[difficulty]; }
+
   // ---------- setup ----------
   function newGame() {
+    const d = diff();
+    const youGold = Math.round(START_GOLD * d.youGold);
     const shuffledNames = [...NAMES].sort(() => Math.random() - 0.5);
     players = [
-      { id: 0, name: "You", you: true, gold: START_GOLD, squad: [], wins: 0, points: 0, persona: null }
+      { id: 0, name: "You", you: true, gold: youGold, squad: [], wins: 0, points: 0, persona: null }
     ];
     const personaPool = [...PERSONAS].sort(() => Math.random() - 0.5);
     for (let i = 1; i <= 3; i++) {
@@ -776,7 +806,7 @@
     else if (have === 2) val *= 1.9; // pushes to the strong 3-set
     if (unit.tier === "elite") val *= 1.2;
 
-    let bid = val * p.persona.bidMul * rand(0.7, 1.15);
+    let bid = val * p.persona.bidMul * diff().aiBidMul * rand(0.7, 1.15);
     // occasional overbid (nerve)
     if (Math.random() < p.persona.overbid) bid *= rand(1.2, 1.5);
     bid = Math.round(clamp(bid, 0, p.gold));
@@ -1722,6 +1752,13 @@
   // ---------- wire up ----------
   function renderStatsLine(){ const sl = $("statsLine"); if (sl) sl.innerHTML = statsLine(); }
   function renderMuteBtn(){ const b = $("btnMute"); if (b) b.textContent = SND.muted ? "🔇 MUTED" : "🔊 SOUND"; }
+  function renderDiff(){
+    const row = $("diffRow"); if (!row) return;
+    row.querySelectorAll(".diff-btn").forEach(b => b.classList.toggle("sel", b.dataset.diff === difficulty));
+    const bl = $("diffBlurb"); if (bl) bl.textContent = "— " + diff().blurb;
+  }
+  { const row = $("diffRow"); if (row) row.querySelectorAll(".diff-btn").forEach(b =>
+      b.addEventListener("click", () => { setDifficulty(b.dataset.diff); renderDiff(); })); }
   // any gesture both starts the game action AND unlocks/resumes audio
   const gesture = () => { SND.init(); SND.resume(); };
   $("btnStart").addEventListener("click", () => { gesture(); newGame(); });
@@ -1729,7 +1766,7 @@
   $("btnHowTo").addEventListener("click", () => { gesture(); showHowTo(); });
   $("btnHowToBack").addEventListener("click", () => { hideHowTo(); renderStatsLine(); });
   $("btnMute").addEventListener("click", () => { SND.init(); SND.setMuted(!SND.muted); SND.resume(); renderMuteBtn(); if (!SND.muted) SND.bid(); });
-  SND.init(); renderMuteBtn();
+  SND.init(); renderMuteBtn(); renderDiff();
   renderStatsLine();   // show lifetime record on the intro at load
 })();
 </script>

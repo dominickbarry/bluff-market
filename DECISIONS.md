@@ -339,6 +339,16 @@ drawn procedurally rather than adding sprites.
   existing tension/impact beats. All suites green; committed to auto-deploy via the Pages
   workflow.
 
+## 22. Difficulty levels (2026-11-18)
+- **Easy / Normal / Hard** picker on the intro, persisted to localStorage. Scales two
+  already-tuned knobs: the player's starting gold and the rivals' bid aggression
+  (`diff().aiBidMul` in aiBid, `youGold` multiplier in newGame). Normal = the balanced
+  defaults, untouched — so existing balance and the gating tests are unaffected.
+- **Verified** with a throwaway sweep (120 games each): Easy 69% / Normal 28% / Hard 10%
+  win rate for competent play — a clear monotonic gradient. Script removed after use.
+- All gating suites green (Normal is default). NOTE: committed locally but, like the
+  sound commit, NOT yet deployed — both wait on the protected-`main` push decision.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,
