@@ -349,6 +349,20 @@ drawn procedurally rather than adding sprites.
 - All gating suites green (Normal is default). NOTE: committed locally but, like the
   sound commit, NOT yet deployed — both wait on the protected-`main` push decision.
 
+## 23. Legendary unit tier (2026-11-18)
+- New **✦ Legendary** tier above Elite: ~5% spawn chance, ×2.2 stat multiplier (Elite is
+  ×1.6). Threaded through every tier-aware spot: makeUnit roll, estimateValue (+35%),
+  aiBid (rivals value them +50% so they fight harder for them), the roster chip, lineup
+  mini-card (gold glow), the auction unit card (gold-glow name + "· LEGENDARY"), and a
+  new how-to "UNIT RARITY" section.
+- Makes runs vary — occasionally a monster drops and the table brawls over it, which can
+  swing a round or drain your gold.
+- Tests: section 1 extended — legendary spawn rate ~5%, only valid tiers appear, legendary
+  out-stats common; plus a probe confirming legendaries animate in the royale. All gating
+  suites green.
+- Committed to local main (DEFERRED deploy — now 3 commits ahead of the live site:
+  sound, difficulty, legendary — batched per the user's instruction).
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,
