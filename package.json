@@ -1,0 +1,13 @@
+{
+  "name": "bluff-market",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bluff Market — a single-file auction autobattler. Bid with a poker face at a live timed auction, build a squad, win the battle royale.",
+  "scripts": {
+    "test": "node run-tests.js",
+    "start": "node serve.js",
+    "serve": "node serve.js"
+  },
+  "keywords": ["game", "canvas", "autobattler", "auction", "single-file"],
+  "license": "MIT"
+}

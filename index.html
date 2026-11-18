@@ -1,0 +1,1682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bluff Market - Auction Autobattler</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    min-height: 100%;
+    background: radial-gradient(circle at 50% 15%, #1a2338, #0d1220 70%);
+    color: #f5f5f5;
+    font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 18px 12px 40px; user-select: none;
+  }
+  h1 { font-size: 30px; letter-spacing: 3px; margin-bottom: 2px;
+    background: linear-gradient(#ffe9a8, #e6a021 60%, #b8791a);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,.7)); font-weight: 900; }
+  .tagline { font-size: 13px; opacity: .72; margin-bottom: 14px; letter-spacing: 2px; text-transform: uppercase; }
+  #stage {
+    position: relative; width: 920px; max-width: 96vw; min-height: 560px;
+    background:
+      radial-gradient(120% 80% at 50% 0%, #1e2a44 0%, #141c2e 55%, #0f1526 100%);
+    border: 1px solid #46598a; border-radius: 14px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06), 0 0 0 1px rgba(0,0,0,.4);
+    padding: 18px; display: flex; flex-direction: column;
+  }
+  button {
+    font: inherit; font-size: 16px; font-weight: bold; padding: 10px 22px;
+    border: none; border-radius: 8px; cursor: pointer;
+    background: linear-gradient(#ffd479,#e6a021); color: #2a1600;
+    box-shadow: 0 4px 0 #a86e00; transition: transform .06s;
+  }
+  button:active { transform: translateY(3px); box-shadow: 0 1px 0 #a86e00; }
+  button:disabled { filter: grayscale(.7) brightness(.7); cursor: not-allowed; }
+  button.alt { background: linear-gradient(#8fb8ff,#3f6fd1); color: #fff; box-shadow: 0 4px 0 #23407d; }
+  button.alt:active { box-shadow: 0 1px 0 #23407d; }
+
+  .center { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; flex: 1; text-align: center; }
+  .big { font-size: 40px; font-weight: 900; letter-spacing: 2px; text-shadow: 0 3px 14px #000; }
+  .sub { font-size: 15px; opacity: .85; max-width: 600px; line-height: 1.6; }
+
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  .round-tag { font-size: 14px; letter-spacing: 1px; color: #ffd479; font-weight: bold; }
+  .phase-tag { font-size: 12px; opacity: .7; letter-spacing: 1px; }
+
+  /* players strip */
+  .players { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; justify-content: center; }
+  .pcard {
+    flex: 1 1 180px; min-width: 160px; background: rgba(255,255,255,.04);
+    border: 2px solid #2a3550; border-radius: 10px; padding: 10px 12px;
+  }
+  .pcard.you { border-color: #ffd479; }
+  .pcard h3 { font-size: 14px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: baseline; }
+  .pcard .gold { color: #ffd479; font-weight: bold; }
+  .pcard .gold.hidden { color: #8a93a8; }
+  .pcard .trait-line { font-size: 11px; opacity: .8; margin-top: 2px; min-height: 14px; }
+  .pcard .pers { font-size: 10px; opacity: .55; letter-spacing: .5px; text-transform: uppercase; }
+  .pcard .wins { font-size: 11px; color: #7dff9b; }
+  .roster { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px; }
+  .chip {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,.35);
+    border: 1px solid #3a4a6b;
+  }
+  .chip.Warrior { border-color: #d1452b; } .chip.Archer { border-color: #3fb37a; }
+  .chip.Mage { border-color: #6f8fff; } .chip.Beast { border-color: #d19b2b; }
+  .chip.Rogue { border-color: #b06fd1; }
+
+  /* auction */
+  .auction-wrap { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+  .unit-card {
+    width: 230px; background: linear-gradient(160deg,#2a3a5c,#19233a); border: 1px solid #5a6ea0;
+    border-radius: 12px; padding: 16px; text-align: center;
+    box-shadow: 0 10px 26px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  .unit-card .uname { font-size: 20px; font-weight: 900; letter-spacing: 1px; }
+  .unit-card .utype { display: inline-block; font-size: 11px; padding: 2px 10px; border-radius: 20px; margin: 6px 0 10px; font-weight: bold; }
+  .ut.Warrior { background: #d1452b; } .ut.Archer { background: #2d8f5e; }
+  .ut.Mage { background: #4f6fd1; } .ut.Beast { background: #b5811e; } .ut.Rogue { background: #8f4fd1; }
+  .unit-card .ustats { font-size: 13px; line-height: 1.8; }
+  .unit-card .ustats b { color: #ffd479; }
+  .unit-card .uability { font-size: 11px; opacity: .85; margin-top: 8px; min-height: 24px; font-style: italic; }
+  .unit-card .uvalue { font-size: 12px; margin-top: 6px; color: #cfe0b0; }
+  .unit-card .uvalue b { color: #e8ffc0; }
+  .unit-card .uskill { font-size: 11px; margin-top: 6px; padding-top: 6px; border-top: 1px solid #3a4a6b; line-height: 1.4; }
+  .unit-card .uskill b { color: #ffd479; }
+
+  .bid-panel { width: 260px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  .bid-panel .mygold { font-size: 14px; }
+  .bid-panel .mygold b { color: #ffd479; font-size: 18px; }
+  .bidbox { display: flex; align-items: center; gap: 8px; }
+  .bidbox input {
+    width: 90px; font: inherit; font-size: 20px; text-align: center; padding: 6px;
+    border-radius: 8px; border: 2px solid #4a5d85; background: #0d1424; color: #ffd479; font-weight: bold;
+  }
+  .quickbids { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .quickbids button { font-size: 12px; padding: 5px 10px; }
+  .hint { font-size: 11px; opacity: .65; max-width: 240px; text-align: center; line-height: 1.5; }
+
+  .reveal { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 420px; margin: 0 auto; }
+  .reveal .rrow { display: flex; justify-content: space-between; padding: 7px 12px; border-radius: 7px; background: rgba(255,255,255,.05); font-size: 14px; }
+  .reveal .rrow.win { background: rgba(125,255,155,.14); border: 1px solid #2f7d4a; }
+  .reveal .rrow .bidv { font-weight: bold; color: #ffd479; }
+
+  /* battle log */
+  .battle-log { width: 100%; max-width: 620px; margin: 0 auto; max-height: 300px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+  .battle-log .lrow { padding: 5px 10px; border-radius: 5px; background: rgba(255,255,255,.04); line-height: 1.4; }
+  .battle-log .lrow.head { background: rgba(255,212,121,.12); color: #ffd479; font-weight: bold; }
+  .battle-log .lrow.win { background: rgba(125,255,155,.12); }
+  .battle-log .lrow.ko { color: #ff9b7d; }
+
+  .recap { width: 100%; max-width: 440px; margin: 0 auto 10px; font-size: 13px; }
+  .recap-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .recap-row > span:first-child { opacity: .7; white-space: nowrap; }
+  .recap-row > span:last-child { text-align: right; }
+  .standings { width: 100%; max-width: 440px; margin: 10px auto 0; }
+  .standings .srow { display: flex; justify-content: space-between; padding: 8px 14px; border-radius: 7px; margin-bottom: 4px; background: rgba(255,255,255,.05); }
+  .standings .srow.first { background: linear-gradient(90deg, rgba(255,212,121,.25), rgba(255,212,121,.05)); border: 1px solid #a86e00; }
+  .standings .srow .pts { color: #7dff9b; font-weight: bold; }
+
+  /* timed auction */
+  .timer-ring { font-size: 34px; font-weight: 900; color: #ffd479; letter-spacing: 1px; min-width: 70px; text-align: center; }
+  .timer-ring.low { color: #ff6b5a; animation: pulse .5s infinite alternate; }
+  @keyframes pulse { to { transform: scale(1.12); } }
+  .current-bid { font-size: 15px; margin: 4px 0; }
+  .current-bid b { color: #ffd479; font-size: 22px; }
+  .leader-tag { font-size: 13px; opacity: .9; min-height: 18px; }
+  .leader-tag.you { color: #7dff9b; font-weight: bold; }
+  .timer-bar { width: 260px; max-width: 80vw; height: 8px; background: rgba(0,0,0,.4); border: 1px solid #000; border-radius: 5px; overflow: hidden; margin: 2px auto; }
+  .timer-bar > i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg,#7dff9b,#ffd479); transition: width .1s linear; }
+  .timer-bar > i.low { background: linear-gradient(90deg,#ff9b7d,#ff5a5a); }
+  .bid-feed { width: 300px; max-width: 86vw; height: 92px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; font-size: 12px; margin: 4px auto 0; }
+  .bid-feed .bf { padding: 3px 9px; border-radius: 5px; background: rgba(255,255,255,.05); }
+  .bid-feed .bf.you { background: rgba(125,255,155,.14); }
+  .bid-feed .bf.win { background: rgba(255,212,121,.18); color: #ffd479; font-weight: bold; }
+  .snipe-banner { min-height: 22px; font-size: 15px; font-weight: 900; letter-spacing: 1px; text-align: center; }
+  .snipe-banner.snipe { color: #7dff9b; animation: pulse .4s infinite alternate; }
+  .snipe-banner.hold  { color: #ffd479; animation: pulse .5s infinite alternate; }
+  .snipe-banner.lost  { color: #ff6b5a; }
+  /* live synergy status during the auction */
+  .syn-status { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin: 6px auto 2px; max-width: 260px; }
+  .syn-pill { font-size: 10px; padding: 3px 8px; border-radius: 12px; border: 1px solid #3a4a6b; background: rgba(0,0,0,.3); }
+  .syn-pill.active { border-color: #7dff9b; color: #7dff9b; }
+  .syn-pill.close  { border-color: #ffd479; color: #ffd479; }
+  .raise-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+  .raise-row button { font-size: 14px; padding: 8px 16px; }
+  .raise-row button.out { background: linear-gradient(#b0565a,#8a3338); color: #fff; box-shadow: 0 4px 0 #5a2024; }
+
+  /* auction lineup preview */
+  .lineup { width: 100%; margin: 2px auto 12px; }
+  .lineup-label { font-size: 11px; letter-spacing: 1px; opacity: .6; text-align: center; margin-bottom: 5px; text-transform: uppercase; }
+  .lineup-row { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+  .mini {
+    width: 70px; border-radius: 8px; padding: 6px 4px; text-align: center;
+    background: rgba(255,255,255,.04); border: 1px solid #2a3550; font-size: 10px; position: relative;
+  }
+  .mini.now { border-color: #ffd479; box-shadow: 0 0 0 2px rgba(255,212,121,.3); background: rgba(255,212,121,.08); }
+  .mini.sold { opacity: .4; }
+  .mini.sold::after { content: "SOLD"; position: absolute; top: 50%; left: 0; right: 0; transform: translateY(-50%) rotate(-12deg);
+    font-size: 11px; font-weight: 900; color: #ff9b7d; letter-spacing: 1px; }
+  .mini .mtype { display: inline-block; width: 100%; border-radius: 10px; font-size: 9px; font-weight: bold; padding: 1px 0; margin-bottom: 3px; }
+  .mini .mname { font-weight: bold; font-size: 11px; }
+  .mini .mstat { display: flex; flex-direction: column; gap: 1px; margin-top: 3px; }
+  .mini .mstat span { font-size: 10px; font-weight: bold; border-radius: 3px; padding: 1px 0; }
+  .mini .mhp  { background: rgba(125,255,155,.14); color: #8fe6a8; }
+  .mini .matk { background: rgba(255,155,125,.14); color: #ff9b7d; }
+  .mini .mval { font-size: 10px; margin-top: 2px; color: #cfe0b0; font-weight: bold; }
+  .mini .mstar { color: #ffd479; }
+
+  /* battle canvas */
+  #battleCanvas { display: block; margin: 0 auto; background: linear-gradient(#1b2740,#0e1526);
+    border: 1px solid #46598a; border-radius: 10px; max-width: 96%;
+    box-shadow: 0 10px 30px rgba(0,0,0,.55), inset 0 0 40px rgba(0,0,0,.35); }
+  .battle-subtitle { text-align: center; font-size: 13px; opacity: .85; margin-top: 6px; min-height: 18px; }
+  .vs-line { text-align: center; font-size: 15px; font-weight: bold; margin-bottom: 4px; }
+  .vs-line .me { color: #7dff9b; } .vs-line .foe { color: #ff9b7d; }
+
+  .footer-btns { display: flex; gap: 12px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+  .menu-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .stats-line { font-size: 12px; opacity: .85; margin-top: 10px; color: #cdd8ee; }
+  .stats-line b { color: #ffd479; }
+  .record-note { font-size: 13px; margin: 2px auto 4px; color: #7dff9b; font-weight: bold; min-height: 18px; }
+  .log-note { font-size: 12px; opacity: .6; text-align: center; margin-top: 8px; }
+  /* how-to-play panel */
+  .howto { text-align: left; max-width: 640px; max-height: 420px; overflow-y: auto; padding: 4px 10px;
+    font-size: 13px; line-height: 1.55; }
+  .howto h4 { color: #ffd479; font-size: 14px; letter-spacing: 1px; margin: 14px 0 5px; border-bottom: 1px solid #3a4a6b; padding-bottom: 3px; }
+  .howto h4:first-child { margin-top: 0; }
+  .howto ol { margin: 0 0 4px 18px; } .howto ul { margin: 0 0 4px 16px; list-style: none; padding: 0; }
+  .howto li { margin: 3px 0; }
+  .howto .tag { display: inline-block; min-width: 62px; font-weight: bold; color: #8fe6a8; }
+  .howto .abil { display: inline-block; min-width: 66px; font-weight: bold; }
+  .howto .ut { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 10px; font-weight: bold; margin-right: 6px; }
+  ::-webkit-scrollbar { width: 9px; } ::-webkit-scrollbar-thumb { background: #4a5d85; border-radius: 4px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <h1>BLUFF MARKET</h1>
+  <div class="tagline">AUCTION AUTOBATTLER &mdash; bid with a poker face, win the war</div>
+
+  <div id="stage">
+    <!-- INTRO -->
+    <div id="scrIntro" class="center">
+      <div class="big">BLUFF MARKET</div>
+      <div class="sub">
+        You and 3 rivals fight over fighters at a <b>live timed auction</b> &mdash; the clock resets with every raise, so hold
+        your nerve. <b>Your gold is secret</b>, so bluff: scare rivals off early or snipe at the buzzer. Matching unit types
+        unlock <b>synergy bonuses</b>. Then your squads clash in an animated battle. Most points after 3 rounds takes the crown.
+      </div>
+      <div class="menu-row">
+        <button id="btnStart" type="button">START</button>
+        <button id="btnHowTo" type="button" class="alt">HOW TO PLAY</button>
+      </div>
+      <div class="hint">Tip: rivals can see what you <i>won</i> and what you <i>paid</i> &mdash; but never how much gold you have left. Use that.</div>
+      <div class="stats-line" id="statsLine"></div>
+    </div>
+
+    <!-- HOW TO PLAY -->
+    <div id="scrHowTo" class="center hidden">
+      <div class="big" style="font-size:30px">HOW TO PLAY</div>
+      <div id="howToBody" class="howto"></div>
+      <button id="btnHowToBack" type="button">BACK</button>
+    </div>
+
+    <!-- GAME -->
+    <div id="scrGame" class="hidden">
+      <div class="topbar">
+        <span class="round-tag" id="roundTag">ROUND 1 / 3</span>
+        <span class="phase-tag" id="phaseTag">AUCTION</span>
+      </div>
+      <div class="players" id="playersStrip"></div>
+      <div id="phaseBody"></div>
+    </div>
+
+    <!-- GAME OVER -->
+    <div id="scrEnd" class="center hidden">
+      <div class="big" id="endTitle">CHAMPION</div>
+      <div class="sub" id="endSub"></div>
+      <div class="standings" id="endStandings"></div>
+      <button id="btnReplay" type="button">PLAY AGAIN</button>
+    </div>
+  </div>
+
+<script>
+"use strict";
+(function () {
+  // ---------- data ----------
+  const TYPES = ["Warrior", "Archer", "Mage", "Beast", "Rogue"];
+  const ABILITY = {
+    Warrior: "Tanky front-liner. Soaks damage.",
+    Archer:  "Hits from range before the clash.",
+    Mage:    "Burst damage, fragile.",
+    Beast:   "High health, wild swings.",
+    Rogue:   "Fast strikes, gets first hit."
+  };
+  // STACKING synergies: the advantage grows with EVERY same-type unit beyond
+  // the first (no 2/3 cap). synergyEffect returns the numeric buff for a count;
+  // synergyText renders it. Both combat (buildUnits) and UI read from here so
+  // they can never disagree. A lone unit (n<2) gets no synergy.
+  const SYN_STACK = {
+    Warrior: { per: 0.12, cap: 0.70 },   // armor (damage reduction) per extra unit
+    Mage:    { per: 0.13, cap: 1.20 },   // +attack fraction per extra unit
+    Beast:   { per: 0.15, cap: 1.50 },   // +hp fraction per extra unit
+    Rogue:   { per: 0.08, cap: 0.35 },   // +dodge chance per extra unit (first-strike at n>=2)
+    Archer:  { per: 1,    cap: 3 },       // opening volley shots per archer (min 1)
+  };
+  function synergyEffect(type, n) {
+    const s = SYN_STACK[type]; if (!s) return 0;
+    if (type === "Archer") return n >= 1 ? Math.min(s.cap, n) : 0;   // shots per archer
+    if (n < 2) return 0;
+    return Math.min(s.cap, s.per * (n - 1));
+  }
+  function synergyText(type, n) {
+    if (n < 2) return "";
+    if (type === "Warrior") return `+${Math.round(synergyEffect(type,n)*100)}% armor`;
+    if (type === "Mage")    return `+${Math.round(synergyEffect(type,n)*100)}% attack`;
+    if (type === "Beast")   return `+${Math.round(synergyEffect(type,n)*100)}% health`;
+    if (type === "Rogue")   return n >= 2 ? `first strike${synergyEffect(type,n)>0?` + ${Math.round(synergyEffect(type,n)*100)}% dodge`:""}` : "";
+    if (type === "Archer")  return `${synergyEffect(type,n)} volley shots each`;
+    return "";
+  }
+
+  // (legacy display table kept only for any old references; not used for stacking)
+  const SYNERGY = {
+    Warrior: { 2: "+20% squad armor", 3: "+40% squad armor" },
+    Archer:  { 2: "+1 opening volley", 3: "+2 opening volley (big)" },
+    Mage:    { 2: "+25% squad attack", 3: "+50% squad attack" },
+    Beast:   { 2: "+30% squad health", 3: "+60% squad health" },
+    Rogue:   { 2: "squad strikes first", 3: "strikes first + dodge" }
+  };
+  const NAMES = ["Grax","Vell","Mire","Dusk","Thorn","Kael","Bron","Zia","Ruk","Sable","Onyx","Pike","Fenn","Garr","Wisp","Lyle","Mox","Nara","Volk","Ash"];
+
+  // bidMul tuned down from (0.75/1.15/0.95) so a single player can win a fair
+  // share of 18 units against 3 rivals under the per-unit combat model (where
+  // unit COUNT matters a lot). Re-measured via test-diag.js.
+  const PERSONAS = [
+    { key: "cautious",  desc: "Cautious", bidMul: 0.58, bluffAmt: 0.10, overbid: 0.05 },
+    { key: "aggressive",desc: "Aggressive", bidMul: 0.88, bluffAmt: 0.25, overbid: 0.15 },
+    { key: "tricky",    desc: "Tricky", bidMul: 0.72, bluffAmt: 0.40, overbid: 0.10 }
+  ];
+
+  // ---------- state ----------
+  let players = [];      // {id,name,you,gold,squad:[],wins,points,persona}
+  let round = 1;
+  const MAX_ROUNDS = 3;
+  const UNITS_PER_ROUND = 8;    // kept at 8 — enough for synergies with 4 buyers, without dragging the timed auction
+  const START_GOLD = 75;        // retuned after synergies were made STACKING (which raised the player's ceiling); lands optimal play back near ~30%.
+  let auctionQueue = [];
+  let roundLineup = [];     // full snapshot of this round's units (for the preview strip)
+  let lineupPos = 0;        // index of the unit currently/last on the block
+  let currentUnit = null;
+
+  const $ = (id) => document.getElementById(id);
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const randi = (a, b) => Math.floor(rand(a, b + 1));
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // ---------- persistent stats (localStorage, safe if unavailable) ----------
+  // Gives the game a meta-layer: lifetime record + current/best win streak, so
+  // there's a reason to come back and a sense of improvement. Fully optional —
+  // if storage is blocked (private mode, file://), it degrades to in-memory.
+  const STATS_KEY = "bluffMarket.stats.v1";
+  const DEFAULT_STATS = { games: 0, wins: 0, firsts: 0, bestPlace: 4, streak: 0, bestStreak: 0 };
+  function loadStats() {
+    try { const raw = localStorage.getItem(STATS_KEY); if (raw) return Object.assign({}, DEFAULT_STATS, JSON.parse(raw)); }
+    catch (e) { /* storage blocked — fall through to defaults */ }
+    return Object.assign({}, DEFAULT_STATS);
+  }
+  function saveStats(s) { try { localStorage.setItem(STATS_KEY, JSON.stringify(s)); } catch (e) {} }
+  let stats = loadStats();
+  // record one finished game; returns {newBestStreak, newBestPlace} flags for the UI
+  function recordResult(place, totalPlayers) {
+    const won = place === 1;
+    const flags = { newBestStreak: false, newBestPlace: false };
+    stats.games++;
+    if (won) { stats.wins++; stats.firsts++; stats.streak++; if (stats.streak > stats.bestStreak) { stats.bestStreak = stats.streak; flags.newBestStreak = stats.bestStreak >= 2; } }
+    else { stats.streak = 0; }
+    if (place < stats.bestPlace) { stats.bestPlace = place; flags.newBestPlace = true; }
+    saveStats(stats);
+    return flags;
+  }
+  function statsLine() {
+    if (!stats.games) return "No games yet — your record will show here.";
+    const rate = Math.round(100 * stats.wins / stats.games);
+    return `Record: <b>${stats.wins}W</b> / ${stats.games} played (${rate}%) · best streak <b>${stats.bestStreak}</b>` +
+           (stats.streak >= 2 ? ` · on a <b>${stats.streak}</b>-win streak!` : "");
+  }
+
+  // ---------- setup ----------
+  function newGame() {
+    const shuffledNames = [...NAMES].sort(() => Math.random() - 0.5);
+    players = [
+      { id: 0, name: "You", you: true, gold: START_GOLD, squad: [], wins: 0, points: 0, persona: null }
+    ];
+    const personaPool = [...PERSONAS].sort(() => Math.random() - 0.5);
+    for (let i = 1; i <= 3; i++) {
+      players.push({
+        id: i, name: shuffledNames[i - 1], you: false, gold: START_GOLD,
+        squad: [], wins: 0, points: 0,
+        persona: personaPool[(i - 1) % personaPool.length],
+        apparentGold: START_GOLD
+      });
+    }
+    round = 1;
+    startRound();
+  }
+
+  // per-type stat leanings so the WIDER ranges feel intentional, not just noisy:
+  // [hpLo,hpHi, atkLo,atkHi]. Beasts are beefy, Mages hit hard but frail, etc.
+  const STAT_PROFILE = {
+    Warrior: [20, 34,  4, 10],   // durable, modest damage
+    Beast:   [24, 40,  5, 12],   // the big HP bruisers
+    Archer:  [12, 24,  6, 13],   // squishy, solid damage
+    Mage:    [10, 20,  8, 16],   // glass cannon
+    Rogue:   [12, 22,  7, 14]    // fast, fragile, hits hard
+  };
+  function makeUnit() {
+    const type = pick(TYPES);
+    const tier = Math.random() < 0.20 ? "elite" : "common";
+    const mult = tier === "elite" ? 1.6 : 1;
+    const [hLo, hHi, aLo, aHi] = STAT_PROFILE[type];
+    return {
+      name: pick(NAMES),
+      type,
+      hp: Math.round(randi(hLo, hHi) * mult),
+      atk: Math.round(randi(aLo, aHi) * mult),
+      tier
+    };
+  }
+
+  function startRound() {
+    auctionQueue = [];
+    for (let i = 0; i < UNITS_PER_ROUND; i++) auctionQueue.push(makeUnit());
+    roundLineup = auctionQueue.slice();   // snapshot for the "coming up" preview
+    lineupPos = -1;                        // advanced to 0 when first unit comes up
+    $("scrIntro").classList.add("hidden");
+    $("scrEnd").classList.add("hidden");
+    $("scrGame").classList.remove("hidden");
+    $("roundTag").textContent = `ROUND ${round} / ${MAX_ROUNDS}`;
+    nextAuction();
+  }
+
+  // ---------- players strip ----------
+  function renderPlayers(revealGold) {
+    const strip = $("playersStrip");
+    strip.innerHTML = "";
+    players.forEach(p => {
+      const card = document.createElement("div");
+      card.className = "pcard" + (p.you ? " you" : "");
+      const goldShown = p.you
+        ? `<span class="gold">${p.gold}g</span>`
+        : (revealGold
+            ? `<span class="gold">${p.gold}g</span>`
+            : `<span class="gold hidden">~${p.apparentGold}g?</span>`);
+      const syner = squadSynergies(p.squad);
+      const synTxt = syner.length ? syner.map(s => s.text).join(" · ") : "&nbsp;";
+      const roster = p.squad.map(u => `<span class="chip ${u.type}" title="${u.name} ${u.type} ${u.hp}hp/${u.atk}atk">${u.type[0]}${u.tier==='elite'?'★':''}</span>`).join("");
+      card.innerHTML = `
+        <h3><span>${p.you ? "YOU" : p.name}</span> ${goldShown}</h3>
+        ${p.you ? "" : `<div class="pers">${p.persona.desc}</div>`}
+        <div class="wins">Points: ${p.points}</div>
+        <div class="roster">${roster || '<span style="opacity:.4;font-size:10px">no units yet</span>'}</div>
+        <div class="trait-line">${synTxt}</div>
+      `;
+      strip.appendChild(card);
+    });
+  }
+
+  function squadSynergies(squad) {
+    const counts = {};
+    squad.forEach(u => counts[u.type] = (counts[u.type] || 0) + 1);
+    const out = [];
+    Object.keys(counts).forEach(t => {
+      const n = counts[t];
+      if (n >= 2) out.push({ type: t, n, text: `${t}×${n}: ${synergyText(t, n)}` });
+    });
+    return out;
+  }
+
+  // ---------- auction ----------
+  function nextAuction() {
+    if (auctionQueue.length === 0) { startBattles(); return; }
+    currentUnit = auctionQueue.shift();
+    lineupPos++;                              // advance the preview cursor
+    $("phaseTag").textContent = `AUCTION — ${auctionQueue.length + 1} unit(s) left this round`;
+    renderPlayers(false);
+    renderAuction();
+  }
+
+  // ----- timed ascending auction -----
+  // Each unit is sold live: a countdown runs, anyone can raise the high bid,
+  // and every raise resets the clock. When it hits zero the high bidder wins.
+  // AI rivals each hold a private price ceiling (from aiBid valuation) and
+  // counter-raise on short reaction delays, so bidding wars feel human.
+  const BASE_TIME = 10;   // seconds on first appearance
+  const RESET_TIME = 4;   // seconds the clock resets to after any raise
+  let auc = null;         // live auction state (null when none running)
+
+  function unitCeiling(p) {
+    // reuse aiBid as the rival's max willingness to pay for currentUnit
+    return aiBid(p, currentUnit);
+  }
+
+  // the "coming up" preview strip: all of this round's units face-up, with the
+  // current one highlighted, already-sold ones struck through, rest upcoming.
+  function renderLineup() {
+    const minis = roundLineup.map((u, i) => {
+      const state = i < lineupPos ? "sold" : (i === lineupPos ? "now" : "");
+      return `<div class="mini ${state}">
+        <span class="mtype ut ${u.type}">${u.type}</span>
+        <div class="mname">${u.name}${u.tier==='elite'?' <span class="mstar">★</span>':''}</div>
+        <div class="mstat"><span class="mhp">${u.hp} HP</span><span class="matk">${u.atk} ATK</span></div>
+        <div class="mval">~${estimateValue(u)}g</div>
+      </div>`;
+    }).join("");
+    return `<div class="lineup">
+      <div class="lineup-label">This round's lineup — ${roundLineup.length} units (plan your gold)</div>
+      <div class="lineup-row">${minis}</div>
+    </div>`;
+  }
+
+  function renderAuction() {
+    const u = currentUnit;
+    const you = players[0];
+    const body = $("phaseBody");
+    body.innerHTML = `
+      ${renderLineup()}
+      <div class="auction-wrap">
+        <div class="unit-card">
+          <div class="uname">${u.name} ${u.tier === 'elite' ? '★' : ''}</div>
+          <div class="utype ut ${u.type}">${u.type}${u.tier === 'elite' ? ' · ELITE' : ''}</div>
+          <div class="ustats">HP <b>${u.hp}</b> &nbsp;·&nbsp; ATK <b>${u.atk}</b></div>
+          <div class="uvalue">Est. value <b>~${estimateValue(u)}g</b></div>
+          <div class="uability">${ABILITY[u.type]}</div>
+          <div class="uskill"><b>${ABILITY_NAME[u.type]}:</b> ${ABILITY_TEXT[u.type]}</div>
+        </div>
+        <div class="bid-panel">
+          <div class="mygold">Your gold: <b>${you.gold}g</b></div>
+          <div class="timer-ring" id="aucTimer">${BASE_TIME.toFixed(1)}</div>
+          <div class="timer-bar"><i id="aucBar"></i></div>
+          <div class="current-bid">High bid: <b id="aucHigh">0g</b></div>
+          <div class="leader-tag" id="aucLeader">No bids yet — going once…</div>
+          <div class="snipe-banner" id="snipeBanner"></div>
+          <div class="syn-status" id="synStatus"></div>
+          <div class="raise-row" id="raiseRow"></div>
+          <div class="bid-feed" id="bidFeed"></div>
+          <div class="hint">The clock resets on every raise. Your gold is hidden — bluff with your bids, snipe at the buzzer.</div>
+        </div>
+      </div>
+    `;
+    auc = {
+      high: 0, leader: null, time: BASE_TIME, running: true,
+      lastTick: Date.now(),
+      ceilings: {}, nextAiBid: {}, feed: []
+    };
+    // assign each AI a ceiling + initial reaction delay for THIS unit
+    players.forEach(p => {
+      if (p.you) return;
+      auc.ceilings[p.id] = unitCeiling(p);
+      auc.nextAiBid[p.id] = rand(0.3, 1.6); // seconds until first consideration
+    });
+    renderRaiseButtons();
+    renderSynStatus();
+    tickAuction();
+  }
+
+  // Live synergy read-out for the player: for each type, how many you own, and
+  // whether THIS unit would complete/extend a synergy. Makes bids meaningful.
+  function renderSynStatus() {
+    const el = $("synStatus"); if (!el) return;
+    const you = players[0];
+    const counts = {};
+    you.squad.forEach(u => counts[u.type] = (counts[u.type] || 0) + 1);
+    const t = currentUnit.type;
+    const have = counts[t] || 0;
+    const pills = [];
+    // the current unit's type first, with a hint about what buying it unlocks
+    let hint = "", cls = "syn-pill";
+    if (have === 1) { hint = ` → buy for ${t}×2`; cls += " close"; }
+    else if (have === 2) { hint = ` → buy for ${t}×3!`; cls += " close"; }
+    else if (have >= 3) { hint = " (maxed)"; cls += " active"; }
+    pills.push(`<span class="${cls}">This: ${t} ×${have}${hint}</span>`);
+    // any already-active synergies
+    Object.keys(counts).forEach(tp => {
+      const n = counts[tp]; if (n >= 2) pills.push(`<span class="syn-pill active">${tp}×${n} ✓</span>`);
+    });
+    el.innerHTML = pills.join("");
+  }
+
+  function renderRaiseButtons() {
+    const you = players[0];
+    const row = $("raiseRow");
+    if (!row) return;
+    const nextMin = auc.high + 1;
+    const steps = [5, 10, 20];
+    let html = steps.map(s => {
+      const target = auc.high + s;
+      const dis = target > you.gold ? "disabled" : "";
+      return `<button type="button" class="raise" data-raise="${s}" ${dis}>+${s}</button>`;
+    }).join("");
+    // min-raise + all-in
+    const canMin = nextMin <= you.gold;
+    html += `<button type="button" class="raise alt" data-raise="min" ${canMin?"":"disabled"}>+1 (min)</button>`;
+    html += `<button type="button" class="raise alt" data-raise="all" ${you.gold>auc.high?"":"disabled"}>All in (${you.gold})</button>`;
+    row.innerHTML = html;
+    row.querySelectorAll("button").forEach(b => {
+      b.addEventListener("click", () => {
+        const r = b.dataset.raise;
+        let amt;
+        if (r === "all") amt = you.gold;
+        else if (r === "min") amt = auc.high + 1;
+        else amt = auc.high + parseInt(r, 10);
+        placeBid(players[0], amt);
+      });
+    });
+  }
+
+  function pushFeed(text, cls) {
+    auc.feed.push({ text, cls });
+    const feed = $("bidFeed");
+    if (!feed) return;
+    feed.innerHTML = auc.feed.slice(-12).map(f => `<div class="bf ${f.cls||""}">${f.text}</div>`).join("");
+    feed.scrollTop = 1e9;
+  }
+
+  function placeBid(p, amt) {
+    amt = Math.round(amt);
+    if (amt <= auc.high) return;              // must beat current high
+    if (amt > p.gold) amt = p.gold;           // cannot exceed real gold
+    if (amt <= auc.high) return;
+    auc.high = amt;
+    auc.leader = p;
+    auc.time = RESET_TIME;                      // reset the clock
+    const nm = p.you ? "You" : p.name;
+    pushFeed(`${nm} bid ${amt}g`, p.you ? "you" : "");
+    // schedule rivals to possibly counter after a reaction delay
+    players.forEach(q => {
+      if (q.you || q === p) return;
+      auc.nextAiBid[q.id] = rand(0.4, 1.8);
+    });
+    refreshAuctionUI();
+    renderRaiseButtons();
+  }
+
+  function refreshAuctionUI() {
+    const high = $("aucHigh"), lead = $("aucLeader");
+    if (high) high.textContent = auc.high + "g";
+    if (lead) {
+      if (!auc.leader) { lead.textContent = "No bids yet — going once…"; lead.className = "leader-tag"; }
+      else {
+        const you = auc.leader.you;
+        lead.textContent = (you ? "You lead" : auc.leader.name + " leads") +
+          (auc.time <= RESET_TIME ? " — going " + (auc.time < 2 ? "twice…" : "once…") : "");
+        lead.className = "leader-tag" + (you ? " you" : "");
+      }
+    }
+  }
+
+  function tickAuction() {
+    if (!auc || !auc.running) return;
+    const now = Date.now();
+    const dt = (now - auc.lastTick) / 1000;
+    auc.lastTick = now;
+    auc.time -= dt;
+
+    // AI decisions: each rival counts down its reaction timer, then decides
+    players.forEach(p => {
+      if (p.you || p === auc.leader) return;
+      auc.nextAiBid[p.id] -= dt;
+      if (auc.nextAiBid[p.id] > 0) return;
+      auc.nextAiBid[p.id] = rand(0.5, 1.9);   // reconsider again later
+      const ceil = auc.ceilings[p.id];
+      const nextBid = auc.high + randi(1, 6);
+      // willing to raise if next bid is within ceiling and affordable
+      if (nextBid <= ceil && nextBid <= p.gold) {
+        // tricky personas sometimes fake-push near their own ceiling to bait
+        const bait = p.persona.key === "tricky" && Math.random() < 0.18 && auc.high > ceil * 0.6;
+        if (!bait) placeBid(p, nextBid);
+        else pushFeed(`${p.name} hesitates…`, "");
+      }
+    });
+
+    // clock / UI
+    const t = Math.max(0, auc.time);
+    const timer = $("aucTimer"), bar = $("aucBar");
+    if (timer) { timer.textContent = t.toFixed(1); timer.className = "timer-ring" + (t < 2.5 ? " low" : ""); }
+    if (bar) {
+      const frac = clamp(t / (auc.leader ? RESET_TIME : BASE_TIME), 0, 1);
+      bar.style.width = (frac * 100) + "%";
+      bar.className = t < 2.5 ? "low" : "";
+    }
+    // snipe banner: an unmissable cue when the clock is running out
+    const snipe = $("snipeBanner");
+    if (snipe) {
+      const you = players[0];
+      if (t < 2.6 && auc.time > 0) {
+        if (auc.leader && auc.leader.you) { snipe.textContent = "GOING TWICE — you're winning it!"; snipe.className = "snipe-banner hold"; }
+        else if (auc.high + 1 <= you.gold) { snipe.textContent = "⚡ SNIPE NOW or lose it!"; snipe.className = "snipe-banner snipe"; }
+        else { snipe.textContent = "Priced out — can't afford to snipe"; snipe.className = "snipe-banner lost"; }
+      } else { snipe.textContent = ""; snipe.className = "snipe-banner"; }
+    }
+    refreshAuctionUI();
+
+    if (auc.time <= 0) { endAuction(); return; }
+    auc._raf = requestAnimationFrame(tickAuction);
+  }
+
+  function endAuction() {
+    auc.running = false;
+    if (auc._raf) cancelAnimationFrame(auc._raf);
+    const winner = auc.leader;
+    if (winner) {
+      winner.gold -= auc.high;
+      winner.squad.push(currentUnit);
+    }
+    // rivals project apparent gold (bluff) after each sale
+    players.forEach(p => {
+      if (!p.you) {
+        const bluff = p.persona.bluffAmt;
+        p.apparentGold = Math.round(p.gold * (1 + rand(-0.1, bluff)));
+      }
+    });
+    renderPlayers(false);
+    renderAuctionResult(winner);
+  }
+
+  function renderAuctionResult(winner) {
+    const body = $("phaseBody");
+    const u = currentUnit;
+    const feedRows = auc.feed.slice(-14).map(f => `<div class="bf ${f.cls||""}">${f.text}</div>`).join("");
+    body.innerHTML = `
+      <div class="center" style="gap:10px">
+        <div style="font-size:20px;font-weight:bold">${u.name} <span class="utype ut ${u.type}" style="font-size:11px">${u.type}</span></div>
+        <div class="sub" style="font-size:14px">${winner
+            ? `<b>${winner.you ? "You" : winner.name}</b> won ${u.name} for <b>${auc.high}g</b>.`
+            : "No bids — the unit goes unsold."}</div>
+        <div class="bid-feed" style="height:auto;max-height:150px">${feedRows}</div>
+        <button id="btnNext" type="button">NEXT</button>
+      </div>
+    `;
+    $("btnNext").addEventListener("click", nextAuction);
+  }
+
+  // Neutral market value of a unit in gold — the price anchor shown to the
+  // player. Same stat basis the AI uses, elite-adjusted, but WITHOUT persona or
+  // per-squad synergy fit (those are situational). Rounded to a tidy number.
+  function estimateValue(unit) {
+    let v = unit.hp * 0.6 + unit.atk * 1.4;
+    if (unit.tier === "elite") v *= 1.2;
+    return Math.max(1, Math.round(v));
+  }
+
+  function aiBid(p, unit) {
+    // valuation: base on stats + synergy fit, scaled by persona
+    const statVal = unit.hp * 0.6 + unit.atk * 1.4;
+    let val = statVal;
+    // synergy desire: does this complete/extend a pair?
+    const counts = {};
+    p.squad.forEach(u => counts[u.type] = (counts[u.type] || 0) + 1);
+    const have = counts[unit.type] || 0;
+    if (have === 1) val *= 1.6;      // completes a synergy pair
+    else if (have === 2) val *= 1.9; // pushes to the strong 3-set
+    if (unit.tier === "elite") val *= 1.2;
+
+    let bid = val * p.persona.bidMul * rand(0.7, 1.15);
+    // occasional overbid (nerve)
+    if (Math.random() < p.persona.overbid) bid *= rand(1.2, 1.5);
+    bid = Math.round(clamp(bid, 0, p.gold));
+    // cautious rivals sometimes pass low-value units
+    if (statVal < 14 && Math.random() < 0.4 && p.persona.key === "cautious") bid = 0;
+    return bid;
+  }
+
+  // ---------- battle (per-unit combat model) ----------
+  // Each unit keeps its OWN hp/atk through the fight. Synergies are applied as
+  // per-unit buffs up front, then units duel front-vs-front until one side is
+  // wiped. simBattle is the source of truth; it fills `log` (text) and, if
+  // `events` is given, a per-unit timeline the canvas replays exactly.
+
+  // squadSynergyTiers: {type: tier(0|2|3)} for a squad, shared by combat + UI.
+  function squadTiers(squad) {
+    const counts = {}, tiers = {};
+    squad.forEach(u => counts[u.type] = (counts[u.type] || 0) + 1);
+    Object.keys(counts).forEach(t => { const n = counts[t]; tiers[t] = n >= 3 ? 3 : n >= 2 ? 2 : 0; });
+    return tiers;
+  }
+
+  // Turn a player's squad into an array of combat units with synergies baked
+  // into each unit's effective stats.
+  function buildUnits(p) {
+    const counts = {};
+    p.squad.forEach(u => counts[u.type] = (counts[u.type] || 0) + 1);
+    const warN = counts.Warrior||0, mageN = counts.Mage||0, beastN = counts.Beast||0, rogueN = counts.Rogue||0, archN = counts.Archer||0;
+    // STACKING: each buff scales with the full count, no 2/3 cap (just a ceiling)
+    const armor  = synergyEffect("Warrior", warN);        // 0..0.70
+    const atkMul = 1 + synergyEffect("Mage", mageN);      // 1..2.20
+    const hpMul  = 1 + synergyEffect("Beast", beastN);    // 1..2.50
+    const firstStrike = rogueN >= 2;
+    const dodge  = synergyEffect("Rogue", rogueN);        // 0..0.35
+    const archerShots = archN >= 1 ? synergyEffect("Archer", archN) : 1;  // shots per archer
+    return p.squad.map(u => {
+      const maxHp = Math.max(1, Math.round(u.hp * hpMul));
+      return {
+        type: u.type, tier: u.tier,
+        hp: maxHp, maxHp,
+        atk: Math.max(1, Math.round(u.atk * atkMul)),
+        armor, dodge, firstStrike,
+        isArcher: u.type === "Archer",
+        volleyShots: archerShots,        // how many opening shots THIS archer fires
+        bulwarkUsed: false               // Warrior: first hit taken is halved (once)
+      };
+    });
+  }
+
+  // Per-unit signature abilities (independent of synergies). Each type has one.
+  const ABILITY_NAME = {
+    Warrior: "Bulwark",  Archer: "First Volley", Mage: "Arcane Burst",
+    Beast:   "Frenzy",   Rogue:  "Backstab"
+  };
+  const ABILITY_TEXT = {
+    Warrior: "First hit it takes each battle is halved.",
+    Archer:  "Fires an opening shot before melee, even solo.",
+    Mage:    "~30% chance its attack bursts for +80% damage.",
+    Beast:   "Hits harder the more wounded it is (up to +50%).",
+    Rogue:   "~35% chance to ignore the enemy's armor and crit."
+  };
+
+  function aliveCount(units) { return units.reduce((n, u) => n + (u.hp > 0 ? 1 : 0), 0); }
+  function frontIndex(units) { for (let i = 0; i < units.length; i++) if (units[i].hp > 0) return i; return -1; }
+
+  function simBattle(a, b, log, events) {
+    const aU = buildUnits(a), bU = buildUnits(b);
+    const aName = a.you ? "You" : a.name, bName = b.you ? "You" : b.name;
+    const ev = (e) => { if (events) events.push(e); };
+
+    // guard: an empty squad fields a single frail conscript so battles resolve
+    if (aU.length === 0) aU.push({ type:"Warrior", tier:"common", hp:1, maxHp:1, atk:1, armor:0, dodge:0, firstStrike:false, isArcher:false, volleyShots:1 });
+    if (bU.length === 0) bU.push({ type:"Warrior", tier:"common", hp:1, maxHp:1, atk:1, armor:0, dodge:0, firstStrike:false, isArcher:false, volleyShots:1 });
+
+    log.push({ cls: "head", text: `${aName} (${aliveCount(aU)}u) vs ${bName} (${aliveCount(bU)}u)` });
+    ev({ kind: "start",
+         aUnits: aU.map(u => ({ type:u.type, tier:u.tier, hp:u.hp, maxHp:u.maxHp })),
+         bUnits: bU.map(u => ({ type:u.type, tier:u.tier, hp:u.hp, maxHp:u.maxHp })),
+         aName, bName });
+
+    // pick a target for an attacker: the living enemy with the lowest HP
+    // (focus-fire), with a little randomness so it's not perfectly robotic.
+    function pickTarget(defUnits) {
+      const living = [];
+      for (let i = 0; i < defUnits.length; i++) if (defUnits[i].hp > 0) living.push(i);
+      if (!living.length) return -1;
+      if (Math.random() < 0.25) return living[Math.floor(Math.random() * living.length)];
+      let best = living[0];
+      for (const i of living) if (defUnits[i].hp < defUnits[best].hp) best = i;
+      return best;
+    }
+
+    // apply a hit from attacker unit onto a CHOSEN defender (defIdx); if none
+    // given, it picks its own target. Each unit attacks independently.
+    function strike(side, atkUnit, atkIdx, defUnits, defSideKey, isVolley, defIdx) {
+      const di = (defIdx == null || defUnits[defIdx] == null || defUnits[defIdx].hp <= 0)
+        ? pickTarget(defUnits) : defIdx;
+      if (di < 0) return;
+      const def = defUnits[di];
+      if (def.dodge && Math.random() < def.dodge) {
+        log.push({ text: `${side === "a" ? aName : bName}'s ${atkUnit.type} attacks — ${def.type} dodges!` });
+        ev({ kind: "dodge", side, ai: atkIdx, di });
+        return;
+      }
+      // --- attacker abilities ---
+      let atkPow = atkUnit.atk;
+      let ability = null, pierce = 0;
+      if (!isVolley) {
+        if (atkUnit.type === "Beast") {
+          // Frenzy: up to +50% as HP drops
+          const missing = 1 - clamp(atkUnit.hp / atkUnit.maxHp, 0, 1);
+          const bonus = missing * 0.5;
+          if (bonus > 0.08) { atkPow *= (1 + bonus); ability = "FRENZY"; }
+        } else if (atkUnit.type === "Mage") {
+          if (Math.random() < 0.30) { atkPow *= 1.8; ability = "BURST"; }
+        } else if (atkUnit.type === "Rogue") {
+          if (Math.random() < 0.35) { pierce = 1; atkPow *= 1.15; ability = "BACKSTAB"; } // ignore armor + small crit
+        }
+      }
+      // --- defender ability: Warrior Bulwark (first hit halved) ---
+      let mitig = 1 - (pierce ? 0 : def.armor);
+      let dmg = atkPow * mitig;
+      if (isVolley) dmg *= 0.6; // volley arrows are a softening shot, not full melee
+      let defAbility = null;
+      if (def.type === "Warrior" && !def.bulwarkUsed) {
+        def.bulwarkUsed = true; dmg *= 0.5; defAbility = "BULWARK";
+      }
+      def.hp -= dmg;
+      if (ability) ev({ kind: "ability", side, ui: atkIdx, name: ability });
+      if (defAbility) ev({ kind: "ability", side: defSideKey, ui: di, name: defAbility });
+      ev({ kind: "hit", side, ai: atkIdx, di, dmg, defHp: Math.max(0, def.hp), volley: !!isVolley });
+      log.push({ text: `${side === "a" ? aName : bName}'s ${atkUnit.type}${ability?" ("+ability+")":""} hits ${def.type} for ${Math.round(dmg)}.` });
+      if (def.hp <= 0) {
+        ev({ kind: "death", side: defSideKey, ui: di });
+        log.push({ cls: "ko", text: `${defSideKey === "a" ? aName : bName}'s ${def.type} falls.` });
+      }
+    }
+
+    // opening volley (Archer "First Volley" ability): EVERY archer fires a shot
+    // before melee, even solo. Archer synergy (volleyBonus>=2) adds a second
+    // shot per archer for extra softening.
+    const volleyUnits = [];
+    aU.forEach((u, i) => { if (u.isArcher) volleyUnits.push({ side:"a", u, i, shots: u.volleyShots || 1 }); });
+    bU.forEach((u, i) => { if (u.isArcher) volleyUnits.push({ side:"b", u, i, shots: u.volleyShots || 1 }); });
+    volleyUnits.forEach(({ side, u, i, shots }) => {
+      for (let s = 0; s < shots; s++) {
+        if (aliveCount(aU) && aliveCount(bU))
+          strike(side, u, i, side === "a" ? bU : aU, side === "a" ? "b" : "a", true);
+      }
+    });
+
+    // melee: EVERY living unit acts each round, independently, choosing its own
+    // target. Rogue first-strike makes that side's units act first in the round.
+    const aFS = aU.some(u => u.firstStrike), bFS = bU.some(u => u.firstStrike);
+    // ev({round}) markers let the animation group a round's simultaneous blows.
+    let round = 0;
+    while (aliveCount(aU) > 0 && aliveCount(bU) > 0 && round < 200) {
+      round++;
+      ev({ kind: "round", n: round });
+      // build the action order for this round: all living a-units and b-units.
+      // first-strike side acts first; otherwise interleave for a fair feel.
+      const aActors = aU.map((u,i)=>({u,i,side:"a"})).filter(x=>x.u.hp>0);
+      const bActors = bU.map((u,i)=>({u,i,side:"b"})).filter(x=>x.u.hp>0);
+      let order;
+      if (aFS && !bFS) order = [...aActors, ...bActors];
+      else if (bFS && !aFS) order = [...bActors, ...aActors];
+      else {
+        // neither side has first-strike: interleave, but randomize which side
+        // leads each round so there's NO seat bias (otherwise A always strikes
+        // first and wins mirror matches ~89% of the time).
+        const aLead = Math.random() < 0.5;
+        const first = aLead ? aActors : bActors, second = aLead ? bActors : aActors;
+        order = []; const n = Math.max(first.length, second.length);
+        for (let k=0;k<n;k++){ if(first[k])order.push(first[k]); if(second[k])order.push(second[k]); }
+      }
+      for (const act of order) {
+        if (act.u.hp <= 0) continue;                 // died earlier this round
+        const defUnits = act.side === "a" ? bU : aU;
+        const defKey   = act.side === "a" ? "b" : "a";
+        if (aliveCount(defUnits) === 0) break;        // enemy wiped mid-round
+        strike(act.side, act.u, act.i, defUnits, defKey, false);
+      }
+    }
+
+    let winner;
+    const aAlive = aliveCount(aU), bAlive = aliveCount(bU);
+    if (aAlive > 0 && bAlive === 0) winner = a;
+    else if (bAlive > 0 && aAlive === 0) winner = b;
+    else if (aAlive !== bAlive) winner = aAlive > bAlive ? a : b;      // timeout: more units left
+    else { // both empty or equal stall: total remaining hp, then coin flip
+      const aRem = aU.reduce((s,u)=>s+Math.max(0,u.hp),0), bRem = bU.reduce((s,u)=>s+Math.max(0,u.hp),0);
+      winner = aRem === bRem ? (Math.random()<0.5?a:b) : (aRem>bRem?a:b);
+    }
+    log.push({ cls: "ko", text: `${(winner.you ? "You" : winner.name)} win${winner.you ? "" : "s"} the clash.` });
+    ev({ kind: "ko", winSide: winner === a ? "a" : "b" });
+    return winner;
+  }
+
+  // ---------- BATTLE ROYALE: all squads fight at once in one arena ----------
+  // Every living unit targets the weakest living enemy unit from ANY other
+  // player. Players are eliminated when their whole squad falls; the last
+  // standing wins. Returns placement (1st..Nth) by reverse elimination order.
+  // Events are keyed by player index (pi/ui for attacker, tpi/tui for target).
+  function simRoyale(playerList, log, events) {
+    const ev = (e) => { if (events) events.push(e); };
+    // build each squad's combat units
+    const squads = playerList.map((p, pi) => {
+      let units = buildUnits(p);
+      if (units.length === 0) units = [{ type:"Warrior", tier:"common", hp:1, maxHp:1, atk:1, armor:0, dodge:0, firstStrike:false, isArcher:false, volleyShots:1, bulwarkUsed:false }];
+      return { pi, player: p, name: p.you ? "You" : p.name, you: p.you, units };
+    });
+    const sqAlive = (s) => s.units.reduce((n,u)=>n+(u.hp>0?1:0),0);
+    const livingSquads = () => squads.filter(s => sqAlive(s) > 0);
+
+    ev({ kind: "start", squads: squads.map(s => ({
+      pi: s.pi, name: s.name, you: s.you,
+      units: s.units.map(u => ({ type:u.type, tier:u.tier, hp:u.hp, maxHp:u.maxHp }))
+    })) });
+    log.push({ cls:"head", text: `Battle royale: ${squads.map(s=>`${s.name} (${sqAlive(s)}u)`).join(" vs ")}` });
+
+    // pick the weakest living enemy unit across all OTHER squads
+    function pickTarget(attackerSquad) {
+      let best = null;
+      for (const s of squads) {
+        if (s === attackerSquad || sqAlive(s) === 0) continue;
+        for (let ui = 0; ui < s.units.length; ui++) {
+          const u = s.units[ui];
+          if (u.hp <= 0) continue;
+          if (!best || u.hp < best.u.hp || (Math.random() < 0.12)) best = { s, ui, u };
+        }
+      }
+      return best;
+    }
+
+    const eliminationOrder = []; // squads in the order they are wiped out
+    function checkElims() {
+      for (const s of squads) {
+        if (!s._out && sqAlive(s) === 0) {
+          s._out = true; eliminationOrder.push(s);
+          ev({ kind: "eliminated", pi: s.pi });
+          log.push({ cls:"ko", text: `${s.name} is eliminated.` });
+        }
+      }
+    }
+
+    function strike(atkSquad, atkUnit, atkUi, isVolley) {
+      const tgt = pickTarget(atkSquad);
+      if (!tgt) return;
+      const def = tgt.u, defSquad = tgt.s, di = tgt.ui;
+      if (def.dodge && Math.random() < def.dodge) {
+        ev({ kind:"dodge", pi: atkSquad.pi, ui: atkUi, tpi: defSquad.pi, tui: di });
+        return;
+      }
+      let atkPow = atkUnit.atk, ability = null, pierce = 0;
+      if (!isVolley) {
+        if (atkUnit.type === "Beast") { const miss = 1 - clamp(atkUnit.hp/atkUnit.maxHp,0,1); if (miss*0.5 > 0.08) { atkPow *= 1+miss*0.5; ability="FRENZY"; } }
+        else if (atkUnit.type === "Mage") { if (Math.random()<0.30){ atkPow*=1.8; ability="BURST"; } }
+        else if (atkUnit.type === "Rogue") { if (Math.random()<0.35){ pierce=1; atkPow*=1.15; ability="BACKSTAB"; } }
+      }
+      let dmg = atkPow * (1 - (pierce ? 0 : def.armor));
+      if (isVolley) dmg *= 0.6;
+      let defAbility = null;
+      if (def.type === "Warrior" && !def.bulwarkUsed) { def.bulwarkUsed = true; dmg *= 0.5; defAbility = "BULWARK"; }
+      def.hp -= dmg;
+      if (ability) ev({ kind:"ability", pi: atkSquad.pi, ui: atkUi, name: ability });
+      if (defAbility) ev({ kind:"ability", pi: defSquad.pi, ui: di, name: defAbility });
+      ev({ kind:"hit", pi: atkSquad.pi, ui: atkUi, tpi: defSquad.pi, tui: di, dmg, defHp: Math.max(0,def.hp), volley: !!isVolley });
+      if (def.hp <= 0) { ev({ kind:"death", pi: defSquad.pi, ui: di }); }
+    }
+
+    // opening volleys: every archer fires at a chosen enemy before melee
+    squads.forEach(s => s.units.forEach((u, ui) => {
+      if (u.isArcher && livingSquads().length > 1) {
+        const shots = u.volleyShots || 1;
+        for (let k=0;k<shots;k++) if (u.hp>0 && livingSquads().length>1) strike(s, u, ui, true);
+      }
+    }));
+    checkElims();
+
+    // melee rounds: every living unit on every surviving squad acts once/round.
+    // first-strike units act first; order is otherwise shuffled for fairness.
+    let round = 0;
+    while (livingSquads().length > 1 && round < 300) {
+      round++;
+      ev({ kind:"round", n: round });
+      const actors = [];
+      squads.forEach(s => { if (sqAlive(s)) s.units.forEach((u,ui) => { if (u.hp>0) actors.push({ s, u, ui, fs: u.firstStrike }); }); });
+      // shuffle, then stable-sort first-strikers to the front (no seat bias)
+      for (let i=actors.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [actors[i],actors[j]]=[actors[j],actors[i]]; }
+      actors.sort((x,y)=> (y.fs?1:0)-(x.fs?1:0));
+      for (const act of actors) {
+        if (act.u.hp <= 0) continue;              // died earlier this round
+        if (livingSquads().length <= 1) break;    // only one squad left
+        strike(act.s, act.u, act.ui, false);
+        checkElims();
+      }
+    }
+
+    // any squads still alive at the end tie for the top placements by remaining HP
+    const survivors = livingSquads().sort((a,b) =>
+      b.units.reduce((s,u)=>s+Math.max(0,u.hp),0) - a.units.reduce((s,u)=>s+Math.max(0,u.hp),0));
+    // placement: survivors first (by hp), then eliminated in REVERSE order
+    const placement = [...survivors, ...eliminationOrder.slice().reverse()];
+    ev({ kind:"done", order: placement.map(s => s.pi) });
+    log.push({ cls:"win", text: `Winner: ${placement[0].name}.` });
+    return placement.map(s => s.player);   // 1st .. Nth
+  }
+
+  // one royale per round; results decided up front, then animated.
+  let royale = null;      // { events, placement }
+
+  function startBattles() {
+    $("phaseTag").textContent = "BATTLE";
+    renderPlayers(true); // reveal gold now that auction is over
+    const log = [], events = [];
+    const placement = simRoyale(players, log, events);
+    // placement points: 1st..Nth -> (N-1)..0
+    const n = placement.length;
+    placement.forEach((p, i) => { const pts = n - 1 - i; p.points += pts; p.lastPlace = i + 1; p.lastPts = pts; });
+    royale = { events, placement };
+    renderPlayers(true);
+    renderBattleStage();
+  }
+
+  function renderBattleStage() {
+    const body = $("phaseBody");
+    body.innerHTML = `
+      <div style="text-align:center;font-size:17px;font-weight:bold;color:#ffd479;margin-bottom:8px">
+        ROUND ${round} — BATTLE ROYALE (last squad standing wins)
+      </div>
+      <div class="vs-line" id="vsLine"></div>
+      <canvas id="battleCanvas" width="640" height="300"></canvas>
+      <div class="battle-subtitle" id="battleSub"></div>
+      <div class="footer-btns">
+        <button id="btnSkip" type="button" class="alt">SKIP ANIMATION</button>
+      </div>
+    `;
+    $("btnSkip").addEventListener("click", () => { animState.skip = true; });
+    animateRoyale(royale);
+  }
+
+  // ----- canvas fight animation -----
+  const animState = { raf: 0, skip: false };
+
+  // lighten a #rrggbb hex toward white by t (0..1) — for metallic highlights.
+  function lighten(hex, t) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex); if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    let r = (n>>16)&255, g = (n>>8)&255, b = n&255;
+    r = Math.round(r + (255-r)*t); g = Math.round(g + (255-g)*t); b = Math.round(b + (255-b)*t);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  // A filled, armored warrior drawn in a side-on combat stance. `facing` is
+  // +1 (facing right) or -1 (facing left). `atk` 0..1 drives the attack pose
+  // (wind-up through follow-through). `hurt` 0..1 is a recoil/flash amount.
+  function drawWarrior(ctx, x, groundY, opts) {
+    const { color, dark, facing, atk, hurt, dead, weapon, scale } = opts;
+    const s = scale || 1;
+    ctx.save();
+    ctx.translate(x, groundY);
+    ctx.scale(facing * s, s);
+    if (dead) { ctx.translate(0, 6); ctx.rotate(-1.15); ctx.globalAlpha = 0.5; }
+
+    const lunge = atk * 18;                 // body drives forward on attack
+    const recoil = hurt * -12;              // knocked back when hurt
+    ctx.translate(lunge + recoil, 0);
+    const skin = "#caa27a", steel = hurt > 0.4 ? "#ffffff" : color, steelDark = dark;
+
+    // --- shadow ---
+    ctx.save(); ctx.globalAlpha *= 0.35; ctx.fillStyle = "#000";
+    ctx.beginPath(); ctx.ellipse(0, 2, 26, 6, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
+
+    // --- back leg ---
+    ctx.lineCap = "round"; ctx.lineWidth = 9;
+    ctx.strokeStyle = steelDark;
+    ctx.beginPath(); ctx.moveTo(-4, -30); ctx.lineTo(-16, 0); ctx.stroke();
+    // --- front leg (steps forward on lunge) ---
+    ctx.strokeStyle = steel;
+    ctx.beginPath(); ctx.moveTo(2, -30); ctx.lineTo(14 + atk*8, 0); ctx.stroke();
+
+    // --- torso (armored, slight forward lean on attack) ---
+    ctx.save();
+    ctx.rotate(atk * 0.12);
+    const g = ctx.createLinearGradient(-13, -58, 13, -24);
+    g.addColorStop(0, steel === "#ffffff" ? "#fff" : lighten(steel, 0.25));
+    g.addColorStop(0.5, steel); g.addColorStop(1, steelDark);
+    const torso = () => { ctx.beginPath();
+      ctx.moveTo(-11, -30); ctx.lineTo(-13, -56); ctx.quadraticCurveTo(0, -62, 13, -56);
+      ctx.lineTo(11, -30); ctx.quadraticCurveTo(0, -24, -11, -30); ctx.closePath(); };
+    ctx.fillStyle = steel === "#ffffff" ? "#fff" : g; torso(); ctx.fill();
+    // dark outline for definition
+    ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 1.5; torso(); ctx.stroke();
+    // metallic sheen: a bright highlight clipped to the breastplate shape
+    ctx.save(); torso(); ctx.clip();
+    const sheen = ctx.createLinearGradient(-10,-56,-2,-30);
+    sheen.addColorStop(0,"rgba(255,255,255,.5)"); sheen.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.fillStyle = sheen; ctx.fillRect(-13,-62,8,40); ctx.restore();
+    // belt
+    ctx.fillStyle = steelDark; ctx.fillRect(-11, -34, 22, 5);
+
+    // --- head + helmet ---
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.arc(2, -68, 9, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = steel === "#ffffff" ? "#fff" : color;   // helm
+    ctx.beginPath();
+    ctx.arc(2, -70, 10, Math.PI*1.05, Math.PI*2.05); ctx.fill();
+    ctx.fillRect(-6, -72, 16, 5);
+    // helm plume
+    ctx.fillStyle = steelDark;
+    ctx.beginPath(); ctx.moveTo(2,-80); ctx.quadraticCurveTo(10,-90,4,-78); ctx.fill();
+    ctx.restore();
+
+    // --- shield on back/front arm (rim + emblem) ---
+    ctx.save();
+    ctx.rotate(-hurt * 0.2);
+    const sg = ctx.createRadialGradient(-10,-47,1,-8,-44,14);
+    sg.addColorStop(0, lighten(color,0.3)); sg.addColorStop(1, steelDark);
+    ctx.fillStyle = sg;
+    ctx.beginPath(); ctx.ellipse(-8, -44, 9, 13, 0, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = lighten(color,0.4); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(-8, -44, 9, 13, 0, 0, Math.PI*2); ctx.stroke();
+    // emblem: a small boss + cross
+    ctx.fillStyle = lighten(color,0.5);
+    ctx.beginPath(); ctx.arc(-8,-44,2.4,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-8,-52); ctx.lineTo(-8,-36); ctx.moveTo(-14,-44); ctx.lineTo(-2,-44); ctx.stroke();
+    ctx.restore();
+
+    // --- weapon arm + weapon (swings through on attack) ---
+    ctx.save();
+    ctx.translate(6, -48);
+    const swing = -0.9 + atk * 2.3;         // wind-up (back) to follow-through (down/forward)
+    ctx.rotate(swing);
+    ctx.strokeStyle = steel; ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(14,0); ctx.stroke();   // forearm
+    drawWeapon(ctx, weapon, color, steelDark);
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  function drawWeapon(ctx, weapon, color, dark) {
+    ctx.save();
+    ctx.translate(14, 0);
+    if (weapon === "sword" || weapon === "Warrior" || weapon === "Beast") {
+      // blade
+      ctx.fillStyle = "#d8dde6";
+      ctx.beginPath(); ctx.moveTo(0,-3); ctx.lineTo(30,-2); ctx.lineTo(34,0); ctx.lineTo(30,2); ctx.lineTo(0,3); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = dark; ctx.fillRect(-2,-6,4,12);           // crossguard
+    } else if (weapon === "Archer") {
+      // bow
+      ctx.strokeStyle = "#9c6b3f"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(6, 0, 16, -1.2, 1.2); ctx.stroke();
+      ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(6 + 16*Math.cos(-1.2), 16*Math.sin(-1.2)); ctx.lineTo(6 + 16*Math.cos(1.2), 16*Math.sin(1.2)); ctx.stroke();
+    } else if (weapon === "Mage") {
+      // staff with glowing orb
+      ctx.strokeStyle = "#7a5a3a"; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(26,-2); ctx.stroke();
+      const gg = ctx.createRadialGradient(28,-3,1,28,-3,8);
+      gg.addColorStop(0,"#bfe0ff"); gg.addColorStop(1, color);
+      ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(28,-3,6,0,Math.PI*2); ctx.fill();
+    } else { // Rogue -> dagger
+      ctx.fillStyle = "#d8dde6";
+      ctx.beginPath(); ctx.moveTo(0,-2); ctx.lineTo(16,-1); ctx.lineTo(19,0); ctx.lineTo(16,1); ctx.lineTo(0,2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = dark; ctx.fillRect(-2,-4,3,8);
+    }
+    ctx.restore();
+  }
+
+  // palette per player slot: index 0 (you) is green; rivals get distinct hues.
+  const SLOT_COLORS = [
+    { col:"#58d989", dark:"#2f8f54" },  // you
+    { col:"#6f8fe0", dark:"#3f5aa8" },  // rival 1 (blue)
+    { col:"#e07a5f", dark:"#a8452f" },  // rival 2 (red)
+    { col:"#d7b24a", dark:"#8a6f1e" },  // rival 3 (gold)
+    { col:"#b06fd1", dark:"#6f3f8a" },  // spare (purple)
+  ];
+
+  function animateRoyale(roy) {
+    animState.skip = false;
+    const cv = $("battleCanvas");
+    const ctx = cv && cv.getContext ? cv.getContext("2d") : null;
+    if (!ctx) { finishRoyaleUI(roy); return; }
+    const W = cv.width, H = cv.height, groundY = 236;
+    let shake = 0, flash = 0;
+    const sparks = [], projectiles = [], motes = [], hits = [];
+
+    const ev = roy.events;
+    const start = ev[0];                 // { squads: [{pi,name,you,units[]}] }
+    const nSquads = start.squads.length;
+
+    // lay the squads out in evenly spaced columns across the arena; each squad
+    // is a small 2-row cluster. forms[pi] = array of unit sprites.
+    const forms = [];
+    const names = [], youFlags = [];
+    start.squads.forEach((sq, slot) => {
+      const pal = SLOT_COLORS[sq.pi % SLOT_COLORS.length];
+      const cx = W * (slot + 1) / (nSquads + 1);     // column centre
+      names[sq.pi] = sq.you ? "YOU" : sq.name;
+      youFlags[sq.pi] = sq.you;
+      const n = sq.units.length;
+      const perRow = Math.ceil(n / 2);
+      const gap = perRow >= 3 ? 22 : 26;
+      const scale = n >= 6 ? 0.5 : n >= 4 ? 0.56 : 0.64;
+      const facing = cx < W/2 ? 1 : -1;              // face toward centre
+      forms[sq.pi] = sq.units.map((u, i) => {
+        const rowIdx = i % 2, col2 = Math.floor(i / 2);
+        const spanW = (perRow - 1) * gap;
+        const hx = cx - spanW/2 + col2 * gap;
+        const hy = groundY - rowIdx * 24 - (col2 % 2) * 5;
+        return {
+          type: u.type, weapon: u.type,
+          hp: u.hp, maxHp: u.maxHp, down: u.hp <= 0,
+          homeX: hx, homeY: hy,       // formation slot
+          ox: 0, oy: 0, tox: 0, toy: 0, // current + target offset from home (movement)
+          x: hx, y: hy,                // live position (home + offset), set each frame
+          scale, col: pal.col, dark: pal.dark, facing,
+          atk: 0, hurt: 0, deadT: 0, bob: Math.random()*Math.PI*2,
+          step: Math.random()*Math.PI*2, // idle foot-shuffle phase
+        };
+      });
+    });
+    const midX = [];
+    forms.forEach((f, pi) => { if (f && f.length) midX[pi] = f.reduce((s,u)=>s+u.x,0)/f.length; });
+
+    const vs = $("vsLine");
+    if (vs) vs.innerHTML = start.squads.map(sq =>
+      `<span style="color:${SLOT_COLORS[sq.pi%SLOT_COLORS.length].col}">${sq.you?'YOU':sq.name}</span>`
+    ).join(' &nbsp;·&nbsp; ');
+
+    let idx = 1;                 // next event to apply (0 is "start")
+    let eventTimer = 0;
+    const STEP = 0.34;           // seconds between events
+    let last = performance.now ? performance.now() : Date.now();
+
+    const allUnits = () => forms.flat();
+    function unitAt(pi, ui){ return forms[pi] && forms[pi][ui]; }
+    function aliveN(form){ return form.reduce((n,u)=>n+(u.down?0:1),0); }
+
+    // light per-squad label (name + survivors). Per-unit HP bars over each
+    // fighter are now the primary health readout, so no aggregate bar here.
+    function squadLabel(pi) {
+      const form = forms[pi]; if (!form || !form.length) return;
+      const x = midX[pi], alive = aliveN(form);
+      ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center";
+      ctx.fillStyle = SLOT_COLORS[pi % SLOT_COLORS.length].col;
+      ctx.fillText(names[pi], x, 18);
+      ctx.fillStyle = alive ? "rgba(245,245,245,.8)" : "#ff6b5a"; ctx.font = "11px sans-serif";
+      ctx.fillText(alive ? `${alive}/${form.length} left` : "eliminated", x, 31);
+    }
+
+    function applyEnd() {
+      // settle to final sim state: only the winner keeps units standing
+      const winPi = roy.placement[0].id;
+      forms.forEach((f, pi) => { if (f && pi !== winPi) f.forEach(u => { u.down = true; u.hp = 0; }); });
+    }
+
+    function frame(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      if (animState.skip) { applyEnd(); drawAll(1); finishRoyaleUI(roy); return; }
+      eventTimer -= dt;
+      allUnits().forEach(u => {
+        u.atk = Math.max(0, u.atk - dt*3.2);
+        u.hurt = Math.max(0, u.hurt - dt*3.5);
+        if (u.down) {
+          // the fallen stop moving and settle to their slot
+          u.tox = 0; u.toy = 0;
+          if (u.deadT < 1) u.deadT = Math.min(1, u.deadT + dt*2.2);
+        } else {
+          u.step += dt * 3;
+          // idle wander: drift gently around the slot when not committed to a move
+          if (Math.abs(u.tox) < 1 && Math.abs(u.toy) < 1) {
+            u.tox = Math.sin(u.step*0.5) * 4;
+            u.toy = Math.cos(u.step*0.4) * 2;
+          }
+        }
+        // ease current offset toward target offset, then decay target back home
+        const k = 1 - Math.pow(0.0025, dt);      // snappy approach
+        u.ox += (u.tox - u.ox) * k;
+        u.oy += (u.toy - u.oy) * k;
+        u.tox *= Math.pow(0.03, dt);             // target eases back to home
+        u.toy *= Math.pow(0.03, dt);
+        u.x = u.homeX + u.ox;
+        u.y = u.homeY + u.oy;
+      });
+      shake = Math.max(0, shake - dt*40);
+      flash = Math.max(0, flash - dt*3);
+
+      if (eventTimer <= 0 && idx < ev.length) {
+        const e = ev[idx++];
+        eventTimer = STEP;
+        if (e.kind === "hit") {
+          const attacker = unitAt(e.pi, e.ui), defender = unitAt(e.tpi, e.tui);
+          if (defender) {
+            const ranged = attacker && (attacker.type === "Archer" || attacker.type === "Mage");
+            const dmgRound = Math.round(e.dmg);
+            if (attacker) {
+              attacker.atk = 1;
+              attacker.facing = defender.x >= attacker.x ? 1 : -1;   // face the target
+              if (!ranged) {
+                // ADVANCE most of the way to the target, then ease back home
+                attacker.tox = clamp((defender.x - attacker.homeX) * 0.72, -220, 220);
+                attacker.toy = (defender.homeY - attacker.homeY) * 0.72;
+              }
+            }
+            const landImpact = () => {
+              defender.hurt = 1; defender.hp = e.defHp;
+              spawnSparks(defender.x, defender.y - 30);
+              shake = e.volley ? 4 : (e.dmg > 14 ? 10 : 6);
+              if (e.dmg > 14) flash = 0.45;
+              hits.push({ x: defender.x, y: defender.y - 56, v: "-"+dmgRound, t: 1, col: e.volley ? "#bfe0ff" : "#ffd479" });
+            };
+            if (ranged && attacker) {
+              projectiles.push({
+                x: attacker.x + attacker.facing*14, y: attacker.y - 40*attacker.scale/0.64,
+                tx: defender.x, ty: defender.y - 34*defender.scale/0.64,
+                kind: attacker.type === "Archer" ? "arrow" : "bolt",
+                col: attacker.type === "Archer" ? "#e8d5a0" : "#c58fff",
+                p: 0, onHit: landImpact
+              });
+            } else landImpact();
+          }
+        } else if (e.kind === "dodge") {
+          const attacker = unitAt(e.pi, e.ui), defender = unitAt(e.tpi, e.tui);
+          if (attacker) attacker.atk = 1;
+          if (defender) hits.push({ x: defender.x, y: defender.y - 56, v: "DODGE", t: 1, col:"#7dff9b" });
+        } else if (e.kind === "ability") {
+          const u = unitAt(e.pi, e.ui);
+          if (u) {
+            const col = e.name === "BULWARK" ? "#8fd0ff" : e.name === "FRENZY" ? "#ff6b5a"
+                      : e.name === "BURST" ? "#c58fff" : e.name === "BACKSTAB" ? "#ffb347" : "#fff";
+            hits.push({ x: u.x, y: u.y - 74, v: e.name, t: 1.1, col, big: true });
+            if (!u.down) u.atk = Math.max(u.atk, 0.6);
+          }
+          eventTimer = 0.18;
+        } else if (e.kind === "round") {
+          eventTimer = 0.10;
+        } else if (e.kind === "death") {
+          const u = unitAt(e.pi, e.ui);
+          if (u) { u.down = true; u.hp = 0; shake = 8; }
+        } else if (e.kind === "eliminated") {
+          const f = forms[e.pi]; if (f) f.forEach(u => { u.down = true; u.hp = 0; });
+          shake = 12;
+          if (midX[e.pi] != null) hits.push({ x: midX[e.pi], y: 72, v: names[e.pi] + " OUT", t: 1.4, col:"#ff6b5a", big: true });
+        } else if (e.kind === "done") {
+          /* final ordering already reflected */
+        }
+      } else if (idx >= ev.length && eventTimer <= -0.6) {
+        drawAll(1); finishRoyaleUI(roy); return;
+      }
+      drawAll(dt);
+      animState.raf = requestAnimationFrame(frame);
+    }
+
+    function spawnSparks(x, y) {
+      for (let i = 0; i < 10; i++) {
+        const a = rand(0, Math.PI*2), sp = rand(40, 150);
+        sparks.push({ x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 30, t: 1, col: Math.random()<.5?"#ffd479":"#fff" });
+      }
+    }
+
+    function drawBackdrop() {
+      // --- dusk sky with vertical gradient ---
+      const sky = ctx.createLinearGradient(0,0,0,groundY);
+      sky.addColorStop(0, "#1b2a4a"); sky.addColorStop(0.55, "#3a4f74"); sky.addColorStop(1, "#8a6f6a");
+      ctx.fillStyle = sky; ctx.fillRect(0,0,W,groundY);
+      // --- low sun glow near the horizon ---
+      const sun = ctx.createRadialGradient(W*0.5, groundY-6, 6, W*0.5, groundY-6, 190);
+      sun.addColorStop(0, "rgba(255,221,150,.55)"); sun.addColorStop(0.4, "rgba(255,180,120,.22)"); sun.addColorStop(1, "rgba(255,180,120,0)");
+      ctx.fillStyle = sun; ctx.fillRect(0,0,W,groundY);
+      // --- drifting clouds (slow parallax) ---
+      const ct = (last||0)/1000;
+      ctx.save();
+      for (let i=0;i<4;i++){
+        const cw = 90 + i*26, cx = ((W*0.2 + i*230 + ct*(6+i*2)) % (W+200)) - 100, cy = 34 + (i%2)*26;
+        ctx.globalAlpha = 0.10 + 0.04*(i%2); ctx.fillStyle = "#cdd8ee";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, cw*0.5, 12, 0, 0, Math.PI*2);
+        ctx.ellipse(cx+cw*0.28, cy-6, cw*0.32, 11, 0, 0, Math.PI*2);
+        ctx.ellipse(cx-cw*0.28, cy-2, cw*0.3, 10, 0, 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.restore();
+      // --- far hills (hazy, high) ---
+      ctx.fillStyle = "#33455f";
+      ctx.beginPath(); ctx.moveTo(0,groundY);
+      ctx.quadraticCurveTo(W*0.18, groundY-82, W*0.4, groundY-40);
+      ctx.quadraticCurveTo(W*0.66, groundY-96, W, groundY-48);
+      ctx.lineTo(W,groundY); ctx.closePath(); ctx.fill();
+      // --- near hills (darker, lower) ---
+      ctx.fillStyle = "#283a4e";
+      ctx.beginPath(); ctx.moveTo(0,groundY);
+      ctx.quadraticCurveTo(W*0.26, groundY-44, W*0.5, groundY-14);
+      ctx.quadraticCurveTo(W*0.78, groundY-56, W, groundY-20);
+      ctx.lineTo(W,groundY); ctx.closePath(); ctx.fill();
+      // --- ground with gradient + a lit strip near the horizon ---
+      const gr = ctx.createLinearGradient(0,groundY,0,H);
+      gr.addColorStop(0,"#7a6646"); gr.addColorStop(0.5,"#5f4f36"); gr.addColorStop(1,"#3f3527");
+      ctx.fillStyle = gr; ctx.fillRect(0,groundY,W,H-groundY);
+      ctx.fillStyle = "rgba(255,210,150,.10)"; ctx.fillRect(0,groundY,W,3);
+      // scattered ground detail (deterministic so it doesn't flicker)
+      ctx.fillStyle = "rgba(0,0,0,.18)";
+      for (let i=0;i<46;i++){
+        const gx = (i*137.5) % W, gy = groundY + 6 + ((i*53) % (H-groundY-8));
+        ctx.fillRect(gx, gy, 2 + (i%3), 1 + (i%2));
+      }
+      ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+    }
+
+    function drawVignette() {
+      const vg = ctx.createRadialGradient(W/2, H*0.42, H*0.28, W/2, H*0.5, H*0.95);
+      vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.42)");
+      ctx.fillStyle = vg; ctx.fillRect(0,0,W,H);
+    }
+
+    function drawFormation(form, t) {
+      // draw units sorted by y so nearer ones overlap correctly as they move
+      const order = form.map((u,i)=>i).sort((a,b)=> form[a].y - form[b].y);
+      for (const i of order) {
+        const u = form[i];
+        const bob = u.down ? 0 : Math.sin(t*2 + u.bob) * 1.2;
+        const fade = u.down ? (1 - u.deadT * 0.65) : 1;
+        if (u.down && u.deadT >= 1) { ctx.globalAlpha = 0.28; } else { ctx.globalAlpha = fade; }
+        drawWarrior(ctx, u.x, u.y + bob + (u.down ? u.deadT*4 : 0), {
+          color: u.col, dark: u.dark, facing: u.facing,
+          atk: u.atk, hurt: u.hurt, dead: u.down, weapon: u.weapon, scale: u.scale
+        });
+        ctx.globalAlpha = 1;
+        // PRIMARY per-unit HP bar, above each living unit's head
+        if (!u.down) {
+          const bw = 30 * (u.scale/0.64), bh = 4;
+          const bx = u.x - bw/2, by = u.y - 78 * (u.scale/0.64) + bob;
+          ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(bx-1, by-1, bw+2, bh+2);
+          const frac = clamp(u.hp / u.maxHp, 0, 1);
+          ctx.fillStyle = frac > 0.5 ? "#7dff9b" : frac > 0.25 ? "#ffd479" : "#ff6b5a";
+          ctx.fillRect(bx, by, bw*frac, bh);
+        }
+      }
+    }
+
+    // seed a few drifting motes once
+    for (let i = 0; i < 18; i++) motes.push({ x: Math.random()*W, y: Math.random()*groundY, vx: rand(-6,6), vy: rand(-3,3), r: rand(0.6,1.8), a: rand(0.05,0.18) });
+
+    function drawAll(dt) {
+      ctx.save();
+      const sx = (Math.random()-0.5)*shake, sy = (Math.random()-0.5)*shake;
+      ctx.clearRect(0, 0, W, H);
+      ctx.translate(sx, sy);
+      drawBackdrop();
+      // ambient drifting motes (behind fighters)
+      for (const m of motes) {
+        m.x += m.vx*dt; m.y += m.vy*dt;
+        if (m.x < 0) m.x += W; if (m.x > W) m.x -= W;
+        if (m.y < 0) m.y += groundY; if (m.y > groundY) m.y -= groundY;
+        ctx.globalAlpha = m.a; ctx.fillStyle = "#cdd8ee";
+        ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, Math.PI*2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      const tnow = (last||0)/1000;
+      // squad name + survivors label (per-unit HP bars are the primary readout now)
+      forms.forEach((f, pi) => { if (f) squadLabel(pi); });
+      forms.forEach(f => { if (f) drawFormation(f, tnow); });
+      // projectiles (arrows / magic bolts) travelling to their target
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const pr = projectiles[i];
+        pr.p += dt * 2.6;                      // ~0.38s flight
+        const px = pr.x + (pr.tx - pr.x) * clamp(pr.p,0,1);
+        const py = pr.y + (pr.ty - pr.y) * clamp(pr.p,0,1) - Math.sin(clamp(pr.p,0,1)*Math.PI)*16; // arc
+        if (pr.p >= 1) { if (pr.onHit) pr.onHit(); projectiles.splice(i,1); continue; }
+        if (pr.kind === "arrow") {
+          const ang = Math.atan2(pr.ty - pr.y, pr.tx - pr.x);
+          ctx.save(); ctx.translate(px,py); ctx.rotate(ang);
+          ctx.strokeStyle = pr.col; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(-7,0); ctx.lineTo(7,0); ctx.stroke();
+          ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.moveTo(7,0); ctx.lineTo(3,-2); ctx.lineTo(3,2); ctx.closePath(); ctx.fill();
+          ctx.restore();
+        } else { // magic bolt: glowing orb with a trail
+          const gg = ctx.createRadialGradient(px,py,0,px,py,7);
+          gg.addColorStop(0,"#fff"); gg.addColorStop(1,pr.col);
+          ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(px,py,5,0,Math.PI*2); ctx.fill();
+        }
+      }
+      // sparks
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const s = sparks[i]; s.t -= dt*2; s.x += s.vx*dt; s.y += s.vy*dt; s.vy += 260*dt;
+        if (s.t <= 0) { sparks.splice(i,1); continue; }
+        ctx.globalAlpha = clamp(s.t,0,1); ctx.fillStyle = s.col;
+        ctx.fillRect(s.x, s.y, 3, 3); ctx.globalAlpha = 1;
+      }
+      // brief white impact flash on heavy hits
+      if (flash > 0) { ctx.globalAlpha = flash * 0.4; ctx.fillStyle = "#fff"; ctx.fillRect(-20,-20,W+40,H+40); ctx.globalAlpha = 1; }
+      // floating damage + ability labels
+      for (let i = hits.length - 1; i >= 0; i--) {
+        const h = hits[i]; h.t -= dt * (h.big ? 0.85 : 1.0); h.y -= dt * (h.big ? 20 : 30);
+        if (h.t <= 0) { hits.splice(i, 1); continue; }
+        ctx.globalAlpha = clamp(h.t, 0, 1);
+        ctx.font = `bold ${h.big ? 16 : 22}px sans-serif`; ctx.textAlign = "center";
+        ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillText(h.v, h.x+1, h.y+1);
+        ctx.fillStyle = h.col; ctx.fillText(h.v, h.x, h.y); ctx.globalAlpha = 1;
+      }
+      drawVignette();   // soft dark edges for depth, over everything
+      ctx.restore();
+    }
+
+    if (animState.raf) cancelAnimationFrame(animState.raf);
+    animState.raf = requestAnimationFrame(frame);
+  }
+
+  function finishRoyaleUI(roy) {
+    if (animState.raf) cancelAnimationFrame(animState.raf);
+    const place = roy.placement;      // 1st..Nth players
+    const champ = place[0];
+    const sub = $("battleSub");
+    // placement line: who placed where this round, with points awarded
+    const n = place.length;
+    const line = place.map((p, i) => {
+      const pts = n - 1 - i;
+      const nm = p.you ? "You" : p.name;
+      return `${ordinal(i+1)} ${nm} (+${pts})`;
+    }).join(" · ");
+    if (sub) sub.innerHTML = `<b style="color:${champ.you?'#7dff9b':'#ffd479'}">${champ.you ? "You win the royale!" : champ.name + " wins the royale"}</b><br><span style="font-size:12px;opacity:.85">${line}</span>`;
+    const last = round >= MAX_ROUNDS;
+    const foot = $("phaseBody");
+    const btns = document.createElement("div");
+    btns.className = "footer-btns";
+    btns.innerHTML = `${renderStandings()}<button id="btnAfter" type="button">${last ? "SEE FINAL RESULT" : "NEXT ROUND — fresh auction"}</button>`;
+    foot.appendChild(btns);
+    $("btnAfter").addEventListener("click", () => {
+      if (last) { endGame(); return; }
+      round++;
+      // income between rounds: a little base + a bonus for placing well
+      players.forEach(p => { p.gold += 40 + (p.lastPts || 0) * 8; p.apparentGold = p.gold; });
+      startRound();
+    });
+  }
+
+  function renderStandings() {
+    const sorted = [...players].sort((a, b) => b.points - a.points);
+    const rows = sorted.map((p, i) => `
+      <div class="srow ${i === 0 ? "first" : ""}">
+        <span>${i + 1}. ${p.you ? "YOU" : p.name} <span style="opacity:.6;font-size:12px">(${p.gold}g, ${p.squad.length}u)</span></span>
+        <span class="pts">${p.points} pts</span>
+      </div>`).join("");
+    return `<div class="standings">${rows}</div>`;
+  }
+
+  function ordinal(n){ const s=["th","st","nd","rd"], v=n%100; return n + (s[(v-20)%10]||s[v]||s[0]); }
+
+  function endGame() {
+    $("scrGame").classList.add("hidden");
+    $("scrEnd").classList.remove("hidden");
+    const sorted = [...players].sort((a, b) => b.points - a.points || b.gold - a.gold);
+    const champ = sorted[0];
+    const you = players[0];
+    const youPlace = sorted.findIndex(p => p.you) + 1;
+    // record into the persistent lifetime stats, before building the screen
+    const flags = recordResult(youPlace, players.length);
+    $("endTitle").textContent = champ.you ? "YOU WIN!" : `${champ.name.toUpperCase()} WINS`;
+    $("endSub").innerHTML = champ.you
+      ? `You read the table and built the strongest squad. Finished <b>1st</b> with ${champ.points} points.`
+      : `You finished <b>${ordinal(youPlace)}</b> of ${players.length}. ${champ.name} built better this time.`;
+
+    // a celebratory note for new records / streaks
+    let note = "";
+    if (flags.newBestStreak) note = `🔥 New best win streak: ${stats.bestStreak} in a row!`;
+    else if (champ.you && stats.streak >= 2) note = `🔥 ${stats.streak}-win streak!`;
+    else if (flags.newBestPlace && !champ.you) note = `New best finish: ${ordinal(stats.bestPlace)}.`;
+    $("endSub").innerHTML += note ? `<div class="record-note">${note}</div>` : "";
+
+    // run recap: your final squad + active synergies + gold left
+    const syn = squadSynergies(you.squad);
+    const comp = {};
+    you.squad.forEach(u => comp[u.type] = (comp[u.type]||0)+1);
+    const compStr = Object.keys(comp).length
+      ? Object.keys(comp).map(t => `<span class="chip ${t}">${t}×${comp[t]}</span>`).join(" ")
+      : '<span style="opacity:.6">no units</span>';
+    const recap = `
+      <div class="recap">
+        <div class="recap-row"><span>Your squad (${you.squad.length})</span><span>${compStr}</span></div>
+        <div class="recap-row"><span>Synergies</span><span>${syn.length ? syn.map(s=>s.text).join(" · ") : "none"}</span></div>
+        <div class="recap-row"><span>Points / gold left</span><span>${you.points} pts · ${you.gold}g</span></div>
+      </div>`;
+    const lifetime = `<div class="stats-line" style="text-align:center;margin-top:10px">${statsLine()}</div>`;
+    $("endStandings").innerHTML = recap + renderStandings() + lifetime;
+    // keep the intro's stats line fresh for when the user returns there
+    const sl = $("statsLine"); if (sl) sl.innerHTML = statsLine();
+  }
+
+  // ---------- how to play ----------
+  // Built from the real game data so it can never drift from the actual rules.
+  function buildHowTo() {
+    const synRows = TYPES.map(t => {
+      // show the stacking curve: 2, 3, 4 of a kind, generated from the live model
+      const s2 = synergyText(t, 2), s3 = synergyText(t, 3), s4 = synergyText(t, 4);
+      return `<li><span class="ut ut ${t}">${t}</span> ×2 ${s2} &nbsp;·&nbsp; ×3 ${s3} &nbsp;·&nbsp; ×4 ${s4} …</li>`;
+    }).join("");
+    const abilRows = TYPES.map(t =>
+      `<li><span class="ut ut ${t}">${t}</span><b>${ABILITY_NAME[t]}:</b> ${ABILITY_TEXT[t]}</li>`
+    ).join("");
+    return `
+      <h4>THE GOAL</h4>
+      <div>Build the strongest squad and win the most battle points over <b>${MAX_ROUNDS} rounds</b>. Most points at the end wins (gold breaks ties).</div>
+
+      <h4>EACH ROUND</h4>
+      <ol>
+        <li><b>Auction</b> — ${UNITS_PER_ROUND} units are sold one at a time at a live timed auction.</li>
+        <li><b>Battle royale</b> — all 4 squads fight at once; last squad standing wins. Placement scores ${MAX_ROUNDS===3?"3/2/1/0":"points"} (1st→last).</li>
+      </ol>
+
+      <h4>THE TIMED AUCTION (the bluff)</h4>
+      <ul>
+        <li><span class="tag">Clock</span> each unit has a countdown that <b>resets on every raise</b> — like "going once, going twice".</li>
+        <li><span class="tag">Raise</span> use +5 / +10 / +20 / +1 / All-in. Highest bid when the clock hits 0 wins and pays.</li>
+        <li><span class="tag">Bluff</span> your gold is <b>hidden</b> from rivals — they see only what you bid. Act rich to scare them off, or sit quiet and snipe at the buzzer.</li>
+      </ul>
+
+      <h4>SYNERGIES (matching types — they STACK)</h4>
+      <div style="opacity:.8;margin-bottom:3px">The bonus grows with EVERY same-type unit beyond the first (no cap at 3):</div>
+      <ul>${synRows}</ul>
+
+      <h4>UNIT ABILITIES (every unit has one)</h4>
+      <ul>${abilRows}</ul>
+
+      <h4>COMBAT</h4>
+      <div>Every unit has its own HP and attack, and all units fight independently, focusing the weakest enemy. Bigger, stronger squads win — but gold is limited, so choose your fights.</div>
+    `;
+  }
+
+  function showHowTo() {
+    $("howToBody").innerHTML = buildHowTo();
+    $("scrIntro").classList.add("hidden");
+    $("scrHowTo").classList.remove("hidden");
+  }
+  function hideHowTo() {
+    $("scrHowTo").classList.add("hidden");
+    $("scrIntro").classList.remove("hidden");
+  }
+
+  // ---------- wire up ----------
+  function renderStatsLine(){ const sl = $("statsLine"); if (sl) sl.innerHTML = statsLine(); }
+  $("btnStart").addEventListener("click", newGame);
+  $("btnReplay").addEventListener("click", newGame);
+  $("btnHowTo").addEventListener("click", showHowTo);
+  $("btnHowToBack").addEventListener("click", () => { hideHowTo(); renderStatsLine(); });
+  renderStatsLine();   // show lifetime record on the intro at load
+})();
+</script>
+</body>
+</html>

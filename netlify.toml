@@ -1,0 +1,8 @@
+# Alternative one-click host. Connect the repo at app.netlify.com and it serves
+# the static site from the repo root — no build step needed.
+[build]
+  publish = "."
+  command = "npm test"
+
+[build.environment]
+  NODE_VERSION = "20"
