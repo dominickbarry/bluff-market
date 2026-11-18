@@ -310,6 +310,35 @@ drawn procedurally rather than adding sprites.
 - Rendering-only; all suites green. Noted for the user: true sprite/photoreal art would
   need external assets, which a single self-contained file can't carry.
 
+## 20. Packaging + deploy, and multiplayer scoping (2026-11-18)
+- **Packaged as a deployable static site:** added README, MIT LICENSE, .gitignore,
+  .gitattributes, package.json (`npm test` runs all suites via run-tests.js; `npm start`
+  serves locally via serve.js), a GitHub Pages workflow (test → deploy) and netlify.toml.
+  Initialised a git repo on `main` with a REPO-LOCAL identity (global git config left
+  untouched) and made the first commit. Not pushed — that needs the user's repo choice
+  and GitHub auth.
+- **Deploy path:** static site, so GitHub Pages (wired via Actions) or Netlify; the live
+  URL is `https://<user>.github.io/<repo>/` once pushed and Pages source is set to Actions.
+- **Multiplayer: scoped, NOT built.** Wrote MULTIPLAYER.md — real online 4-player is a
+  ~4–6 day server project (authoritative Node server + WebSockets + rooms + reconnect,
+  because the hidden-gold bluff is adversarial and can't be trusted client-side), needs a
+  non-static host (Render/Railway/Fly/VPS). The existing pure sim functions (simRoyale,
+  buildUnits) port to the server almost unchanged. Offered a client-only **hot-seat** (~1
+  day) as the cheap middle ground. Left the choice to the user rather than half-building a
+  backend on assumptions.
+
+## 21. Sound (2026-11-18, "keep improving" — now live-deployed)
+- **Web Audio sound layer**, fully synthesized (no asset files, keeps the single-file
+  ethos): bid blips (yours higher-pitched), tense timer ticks under 3s, melee/heavy-hit
+  thuds, elimination sting, victory fanfare / defeat cadence.
+- **Safe by construction:** no `AudioContext` (headless tests, old browsers) → every call
+  no-ops; `setTimeout`-free fallback; verified by a probe (ctx null, nothing throws).
+  Audio is unlocked/resumed on the first user gesture (browser autoplay policy), and a
+  **🔊/🔇 mute toggle** on the intro persists to localStorage.
+- Chosen as the top "feel" upgrade from the earlier what-else map; complements the
+  existing tension/impact beats. All suites green; committed to auto-deploy via the Pages
+  workflow.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

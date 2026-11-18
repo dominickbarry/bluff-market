@@ -214,6 +214,7 @@
       <div class="menu-row">
         <button id="btnStart" type="button">START</button>
         <button id="btnHowTo" type="button" class="alt">HOW TO PLAY</button>
+        <button id="btnMute" type="button" class="alt" title="Toggle sound">🔊 SOUND</button>
       </div>
       <div class="hint">Tip: rivals can see what you <i>won</i> and what you <i>paid</i> &mdash; but never how much gold you have left. Use that.</div>
       <div class="stats-line" id="statsLine"></div>
@@ -319,6 +320,51 @@
   const randi = (a, b) => Math.floor(rand(a, b + 1));
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // ---------- sound (Web Audio, synthesized — no asset files) ----------
+  // Fully optional and safe: no AudioContext (headless tests / old browsers) →
+  // every call is a no-op. Muted state persists. Audio can only start after a
+  // user gesture (browser autoplay policy), so we lazily create the context on
+  // the first click and resume it then.
+  const SND = {
+    ctx: null, muted: false, ready: false,
+    init() {
+      if (this.ready) return;
+      try { this.muted = localStorage.getItem("bluffMarket.muted") === "1"; } catch (e) {}
+      const AC = (typeof window !== "undefined") && (window.AudioContext || window.webkitAudioContext);
+      if (AC) { try { this.ctx = new AC(); } catch (e) { this.ctx = null; } }
+      this.ready = true;
+    },
+    resume() { if (this.ctx && this.ctx.state === "suspended") { try { this.ctx.resume(); } catch (e) {} } },
+    setMuted(m) { this.muted = m; try { localStorage.setItem("bluffMarket.muted", m ? "1" : "0"); } catch (e) {} },
+    // one synth voice: freq sweep + gain envelope
+    tone(freq, dur, type, vol, slideTo) {
+      if (this.muted || !this.ctx) return;
+      const c = this.ctx, t0 = c.currentTime;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type || "sine";
+      o.frequency.setValueAtTime(freq, t0);
+      if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t0 + dur);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol || 0.2, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g); g.connect(c.destination);
+      o.start(t0); o.stop(t0 + dur + 0.02);
+    },
+    bid()      { this.tone(520, 0.08, "square", 0.12, 680); },
+    youBid()   { this.tone(680, 0.10, "square", 0.16, 900); },
+    tick()     { this.tone(1100, 0.04, "sine", 0.08); },
+    hit()      { this.tone(180, 0.09, "triangle", 0.16, 90); },
+    bigHit()   { this.tone(110, 0.16, "sawtooth", 0.22, 55); },
+    elim()     { this.tone(300, 0.30, "sawtooth", 0.2, 70); },
+    seq(notes, type, vol, gap, dur) {
+      if (this.muted || !this.ctx) return;
+      const st = (typeof setTimeout === "function") ? setTimeout : null;
+      notes.forEach((f, i) => { const play = () => this.tone(f, dur, type, vol); if (st) st(play, i*gap); else play(); });
+    },
+    win()  { this.seq([523,659,784,1047], "triangle", 0.2, 110, 0.22); },
+    lose() { this.seq([440,330,247], "sine", 0.16, 140, 0.26); },
+  };
 
   // ---------- persistent stats (localStorage, safe if unavailable) ----------
   // Gives the game a meta-layer: lifetime record + current/best win streak, so
@@ -598,6 +644,7 @@
     auc.time = RESET_TIME;                      // reset the clock
     const nm = p.you ? "You" : p.name;
     pushFeed(`${nm} bid ${amt}g`, p.you ? "you" : "");
+    if (p.you) SND.youBid(); else SND.bid();
     // schedule rivals to possibly counter after a reaction delay
     players.forEach(q => {
       if (q.you || q === p) return;
@@ -647,6 +694,8 @@
 
     // clock / UI
     const t = Math.max(0, auc.time);
+    // tense ticking on each whole second while the clock is low
+    if (t < 3 && auc.leader) { const sec = Math.ceil(t); if (sec !== auc._lastTickSec) { auc._lastTickSec = sec; if (sec > 0) SND.tick(); } }
     const timer = $("aucTimer"), bar = $("aucBar");
     if (timer) { timer.textContent = t.toFixed(1); timer.className = "timer-ring" + (t < 2.5 ? " low" : ""); }
     if (bar) {
@@ -1339,7 +1388,7 @@
               defender.hurt = 1; defender.hp = e.defHp;
               spawnSparks(defender.x, defender.y - 30);
               shake = e.volley ? 4 : (e.dmg > 14 ? 10 : 6);
-              if (e.dmg > 14) flash = 0.45;
+              if (e.dmg > 14) { flash = 0.45; SND.bigHit(); } else if (!e.volley) SND.hit();
               hits.push({ x: defender.x, y: defender.y - 56, v: "-"+dmgRound, t: 1, col: e.volley ? "#bfe0ff" : "#ffd479" });
             };
             if (ranged && attacker) {
@@ -1372,7 +1421,7 @@
           if (u) { u.down = true; u.hp = 0; shake = 8; }
         } else if (e.kind === "eliminated") {
           const f = forms[e.pi]; if (f) f.forEach(u => { u.down = true; u.hp = 0; });
-          shake = 12;
+          shake = 12; SND.elim();
           if (midX[e.pi] != null) hits.push({ x: midX[e.pi], y: 72, v: names[e.pi] + " OUT", t: 1.4, col:"#ff6b5a", big: true });
         } else if (e.kind === "done") {
           /* final ordering already reflected */
@@ -1588,6 +1637,7 @@
     const youPlace = sorted.findIndex(p => p.you) + 1;
     // record into the persistent lifetime stats, before building the screen
     const flags = recordResult(youPlace, players.length);
+    if (champ.you) SND.win(); else SND.lose();
     $("endTitle").textContent = champ.you ? "YOU WIN!" : `${champ.name.toUpperCase()} WINS`;
     $("endSub").innerHTML = champ.you
       ? `You read the table and built the strongest squad. Finished <b>1st</b> with ${champ.points} points.`
@@ -1671,10 +1721,15 @@
 
   // ---------- wire up ----------
   function renderStatsLine(){ const sl = $("statsLine"); if (sl) sl.innerHTML = statsLine(); }
-  $("btnStart").addEventListener("click", newGame);
-  $("btnReplay").addEventListener("click", newGame);
-  $("btnHowTo").addEventListener("click", showHowTo);
+  function renderMuteBtn(){ const b = $("btnMute"); if (b) b.textContent = SND.muted ? "🔇 MUTED" : "🔊 SOUND"; }
+  // any gesture both starts the game action AND unlocks/resumes audio
+  const gesture = () => { SND.init(); SND.resume(); };
+  $("btnStart").addEventListener("click", () => { gesture(); newGame(); });
+  $("btnReplay").addEventListener("click", () => { gesture(); newGame(); });
+  $("btnHowTo").addEventListener("click", () => { gesture(); showHowTo(); });
   $("btnHowToBack").addEventListener("click", () => { hideHowTo(); renderStatsLine(); });
+  $("btnMute").addEventListener("click", () => { SND.init(); SND.setMuted(!SND.muted); SND.resume(); renderMuteBtn(); if (!SND.muted) SND.bid(); });
+  SND.init(); renderMuteBtn();
   renderStatsLine();   // show lifetime record on the intro at load
 })();
 </script>
