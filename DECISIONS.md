@@ -502,6 +502,17 @@ drawn procedurally rather than adding sprites.
   main (now 4 commits ahead of live: real-time ticks, smaller-range/more-move, smooth
   movement, this range-attack sync).
 
+## 35. Distinct attack per unit type (2026-11-18, owner)
+- Each type now has a visually distinct STRIKE gesture in drawTopFighter (driven by the
+  existing `atk` 0..1 timer): Warrior sword SWING (blade sweeps an arc), Rogue dagger
+  STAB (fast a^2 thrust + snap back), Beast triple CLAW SWIPE (sweeping slashes), Archer
+  bow DRAW-and-loose (string pulls back, arrow projectile), Mage CAST (orb charges bright,
+  bolt projectile). Impact FX also keyed to attacker type — Beast heavy sparks + big
+  shake, Rogue light/quick, Mage purple magical burst, Archer small puff, Warrior sturdy.
+- Rendering-only (no sim/combat/balance change); types' stats + abilities were already
+  distinct — this makes the attacks LOOK different too. All gating suites green. Committed
+  to local main (now 5 commits ahead of live).
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,
