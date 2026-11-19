@@ -310,6 +310,120 @@ drawn procedurally rather than adding sprites.
 - Rendering-only; all suites green. Noted for the user: true sprite/photoreal art would
   need external assets, which a single self-contained file can't carry.
 
+## 20. Packaging + deploy, and multiplayer scoping (2026-11-18)
+- **Packaged as a deployable static site:** added README, MIT LICENSE, .gitignore,
+  .gitattributes, package.json (`npm test` runs all suites via run-tests.js; `npm start`
+  serves locally via serve.js), a GitHub Pages workflow (test → deploy) and netlify.toml.
+  Initialised a git repo on `main` with a REPO-LOCAL identity (global git config left
+  untouched) and made the first commit. Not pushed — that needs the user's repo choice
+  and GitHub auth.
+- **Deploy path:** static site, so GitHub Pages (wired via Actions) or Netlify; the live
+  URL is `https://<user>.github.io/<repo>/` once pushed and Pages source is set to Actions.
+- **Multiplayer: scoped, NOT built.** Wrote MULTIPLAYER.md — real online 4-player is a
+  ~4–6 day server project (authoritative Node server + WebSockets + rooms + reconnect,
+  because the hidden-gold bluff is adversarial and can't be trusted client-side), needs a
+  non-static host (Render/Railway/Fly/VPS). The existing pure sim functions (simRoyale,
+  buildUnits) port to the server almost unchanged. Offered a client-only **hot-seat** (~1
+  day) as the cheap middle ground. Left the choice to the user rather than half-building a
+  backend on assumptions.
+
+## 21. Sound (2026-11-18, "keep improving" — now live-deployed)
+- **Web Audio sound layer**, fully synthesized (no asset files, keeps the single-file
+  ethos): bid blips (yours higher-pitched), tense timer ticks under 3s, melee/heavy-hit
+  thuds, elimination sting, victory fanfare / defeat cadence.
+- **Safe by construction:** no `AudioContext` (headless tests, old browsers) → every call
+  no-ops; `setTimeout`-free fallback; verified by a probe (ctx null, nothing throws).
+  Audio is unlocked/resumed on the first user gesture (browser autoplay policy), and a
+  **🔊/🔇 mute toggle** on the intro persists to localStorage.
+- Chosen as the top "feel" upgrade from the earlier what-else map; complements the
+  existing tension/impact beats. All suites green; committed to auto-deploy via the Pages
+  workflow.
+
+## 22. Difficulty levels (2026-11-18)
+- **Easy / Normal / Hard** picker on the intro, persisted to localStorage. Scales two
+  already-tuned knobs: the player's starting gold and the rivals' bid aggression
+  (`diff().aiBidMul` in aiBid, `youGold` multiplier in newGame). Normal = the balanced
+  defaults, untouched — so existing balance and the gating tests are unaffected.
+- **Verified** with a throwaway sweep (120 games each): Easy 69% / Normal 28% / Hard 10%
+  win rate for competent play — a clear monotonic gradient. Script removed after use.
+- All gating suites green (Normal is default). NOTE: committed locally but, like the
+  sound commit, NOT yet deployed — both wait on the protected-`main` push decision.
+
+## 23. Legendary unit tier (2026-11-18)
+- New **✦ Legendary** tier above Elite: ~5% spawn chance, ×2.2 stat multiplier (Elite is
+  ×1.6). Threaded through every tier-aware spot: makeUnit roll, estimateValue (+35%),
+  aiBid (rivals value them +50% so they fight harder for them), the roster chip, lineup
+  mini-card (gold glow), the auction unit card (gold-glow name + "· LEGENDARY"), and a
+  new how-to "UNIT RARITY" section.
+- Makes runs vary — occasionally a monster drops and the table brawls over it, which can
+  swing a round or drain your gold.
+- Tests: section 1 extended — legendary spawn rate ~5%, only valid tiers appear, legendary
+  out-stats common; plus a probe confirming legendaries animate in the royale. All gating
+  suites green.
+- Committed to local main (DEFERRED deploy — now 3 commits ahead of the live site:
+  sound, difficulty, legendary — batched per the user's instruction).
+
+## 24. Battle kill-feed (2026-11-18)
+- A **kill feed** under the royale canvas: as each squad is wiped, a line fades in —
+  "4th: NAME eliminated", "3rd: …" — so you can follow the story of a round (who fell
+  when, and your placement) instead of only seeing the final line.
+- Purely presentational: reuses the `eliminated` events simRoyale already emits; no sim,
+  combat, or balance change. Safe in headless tests (guarded on document.createElement).
+- Considered but DEFERRED a bid-able consumable/relic system — it would touch combat and
+  need full balance re-measurement, too big and risky for a batched polish turn. Noted as
+  a future feature instead of half-building it.
+- Verified: feed rows match elimination events in correct placement order. All gating
+  suites green. Committed to local main — now 4 commits ahead of the live site (sound,
+  difficulty, legendary, kill-feed), still batched per instruction.
+
+## 25. Top-down battle view (2026-11-18) — groundwork for future 3D
+- Rewrote the royale's PRESENTATION from side-on to **top-down**: squads sit around an
+  elliptical arena floor (evenly on a ring, facing centre), drawn from above. New
+  `drawTopFighter` token (body disc + shield arc + facing nub + weapon pointing along an
+  angle) replaces the side-view `drawWarrior` (left in place, now dead/unused). New
+  top-down arena backdrop (floor gradient, grid, centre mark, border ring) replaces the
+  sky/hills. Movement advances in 2D toward the target; projectiles travel flat (no
+  vertical arc); labels/HP bars repositioned for the overhead view.
+- **3D-ready by design:** positions are logical field coords and there's a single
+  `fieldToScreen()` seam (identity today) plus an `ARENA` descriptor — a future WebGL/iso
+  renderer swaps only the projection + token draw, not the layout or the sim. Noted in
+  code comments. 3D itself NOT built (it's a WebGL-scale project).
+- Sim untouched → balance unaffected. Fixed a motes-wrap bug (referenced the removed
+  groundY → now H). All gating suites green; top-down verified across all royale configs.
+- Committed to local main. NOTE: PR #1 already covers the earlier 4 commits (sound,
+  difficulty, legendary, kill-feed); this top-down commit stacks on top and will need to
+  ride that PR's branch or a follow-up — see the deploy note to the user.
+
+## 26. Quick-battle test shortcut (2026-11-18)
+- Added a **⚡ QUICK BATTLE (test)** button on the intro: skips the auction and drops
+  straight into a battle royale with random free squads (3–6 units each), so the fighting
+  can be watched without bidding. Uses the real battle path, set to the final round so it
+  ends cleanly on "SEE FINAL RESULT".
+- A `testMode` flag means quick-battle results do NOT pollute the lifetime stats (end
+  screen shows "Test battle — not counted"). Verified headlessly: reaches a result,
+  stats unchanged.
+- Committed on the feature branch (rides PR #1 with the rest of the batch).
+
+## 27. Free-for-all battle randomness (2026-11-18, owner request)
+- Owner wanted "more randomness" in the (already free-for-all) royale. Added a single
+  **CHAOS** knob (0..1) to simRoyale targeting: CHAOS chance a strike hits a RANDOM living
+  enemy instead of focus-firing the weakest. Default **0.25**.
+- **Measured tradeoff (important):** strong targeting-randomness sharply lowers a solo
+  player's win rate in a 1-of-4 free-for-all — pure/strong random crashed it to ~6%,
+  because scatter dilutes the player's focus-fire edge while 3 rivals' combined fire still
+  erodes them. Isolated the variable (baseline ~22% at 80g). Landed CHAOS=0.25 + START_GOLD
+  80 → optimal play ~27% (fair) with visibly chaotic battles. Higher CHAOS is a valid
+  "harder/wilder" setting — left as a one-number dial for the owner.
+- All gating suites green; dominant-squad royale check still holds.
+
+## 28. NOT DONE YET — per-unit hitbox + range (owner request, queued)
+- Owner also asked that "each character have its own hitbox and range." This is a real
+  positional-combat rewrite: units need field positions, must MOVE to close distance,
+  strikes gate on range (melee short, Archer/Mage long), and the animation must read
+  positions FROM the sim (today the animation lays out positions itself). Balance would
+  need full re-measurement. Deliberately NOT rushed into this turn — flagged to the owner
+  as the focused next step so it's done properly, not half-built.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

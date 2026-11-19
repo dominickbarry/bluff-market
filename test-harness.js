@@ -45,18 +45,24 @@ const U = (type, hp, atk, tier) => ({ type, hp, atk, tier: tier || "common" });
 
 console.log("=== 1. makeUnit: valid units ===");
 {
-  let bad = 0, elites = 0, typeSeen = {};
-  for (let i = 0; i < 5000; i++) {
+  let bad = 0, elites = 0, legends = 0, typeSeen = {}, tiers = {};
+  for (let i = 0; i < 8000; i++) {
     const u = T.makeUnit();
     if (!T.TYPES.includes(u.type)) bad++;
     if (u.hp <= 0 || u.atk <= 0) bad++;
     if (u.tier === "elite") elites++;
-    typeSeen[u.type] = true;
+    if (u.tier === "legendary") legends++;
+    typeSeen[u.type] = true; tiers[u.tier] = true;
   }
   check("all units valid type + positive stats", bad === 0, `${bad} bad`);
   check("all 5 types appear", Object.keys(typeSeen).length === 5);
-  const r = elites/5000;
-  check("elite rate near 22%", r > 0.17 && r < 0.27, `${(r*100).toFixed(1)}%`);
+  check("elite rate near 20%", elites/8000 > 0.15 && elites/8000 < 0.26, `${(100*elites/8000).toFixed(1)}%`);
+  check("legendary rate near 5%", legends/8000 > 0.025 && legends/8000 < 0.085, `${(100*legends/8000).toFixed(1)}%`);
+  check("only valid tiers appear", Object.keys(tiers).every(t => ["common","elite","legendary"].includes(t)), Object.keys(tiers).join());
+  // a legendary should out-stat a common of the same type most of the time
+  function sample(type, tier, n){ let hp=0; for(let i=0;i<n;i++){ let u; do{ u=T.makeUnit(); }while(u.type!==type||u.tier!==tier); hp+=u.hp; } return hp/n; }
+  const legHp = sample("Beast","legendary",40), comHp = sample("Beast","common",40);
+  check("legendary Beast HP >> common Beast HP", legHp > comHp * 1.6, `${comHp.toFixed(0)} vs ${legHp.toFixed(0)}`);
 }
 
 console.log("=== 2. buildUnits: per-unit synergy buffs ===");

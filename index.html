@@ -76,6 +76,7 @@
     box-shadow: 0 10px 26px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08);
   }
   .unit-card .uname { font-size: 20px; font-weight: 900; letter-spacing: 1px; }
+  .unit-card .uname.leg { color: #ffe9a8; text-shadow: 0 0 10px #ffcf5a, 0 0 2px #fff; }
   .unit-card .utype { display: inline-block; font-size: 11px; padding: 2px 10px; border-radius: 20px; margin: 6px 0 10px; font-weight: bold; }
   .ut.Warrior { background: #d1452b; } .ut.Archer { background: #2d8f5e; }
   .ut.Mage { background: #4f6fd1; } .ut.Beast { background: #b5811e; } .ut.Rogue { background: #8f4fd1; }
@@ -169,17 +170,31 @@
   .mini .matk { background: rgba(255,155,125,.14); color: #ff9b7d; }
   .mini .mval { font-size: 10px; margin-top: 2px; color: #cfe0b0; font-weight: bold; }
   .mini .mstar { color: #ffd479; }
+  .mini .mleg { color: #ffe9a8; text-shadow: 0 0 6px #ffcf5a; }
+  .mini.legendary { border-color: #ffcf5a; box-shadow: 0 0 10px rgba(255,207,90,.4); background: rgba(255,207,90,.08); }
 
   /* battle canvas */
   #battleCanvas { display: block; margin: 0 auto; background: linear-gradient(#1b2740,#0e1526);
     border: 1px solid #46598a; border-radius: 10px; max-width: 96%;
     box-shadow: 0 10px 30px rgba(0,0,0,.55), inset 0 0 40px rgba(0,0,0,.35); }
+  .kill-feed { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-top: 6px; min-height: 18px; }
+  .kill-feed .kf { font-size: 12px; opacity: 0; animation: kfIn .35s ease forwards; }
+  .kill-feed .kf b { font-weight: bold; }
+  @keyframes kfIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: .9; transform: none; } }
   .battle-subtitle { text-align: center; font-size: 13px; opacity: .85; margin-top: 6px; min-height: 18px; }
   .vs-line { text-align: center; font-size: 15px; font-weight: bold; margin-bottom: 4px; }
   .vs-line .me { color: #7dff9b; } .vs-line .foe { color: #ff9b7d; }
 
   .footer-btns { display: flex; gap: 12px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
   .menu-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .diff-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: center; margin-bottom: 2px; }
+  .diff-label { font-size: 12px; opacity: .7; letter-spacing: 1px; }
+  .diff-btn { font-size: 13px; padding: 5px 14px; background: linear-gradient(#2a3a5c,#1b2740); color: #cdd8ee;
+    border: 1px solid #46598a; border-radius: 7px; box-shadow: none; }
+  .diff-btn:active { transform: translateY(1px); }
+  .diff-btn.sel { background: linear-gradient(#ffd479,#e6a021); color: #2a1600; border-color: #a86e00; font-weight: 900; }
+  .diff-blurb { font-size: 11px; opacity: .6; font-style: italic; min-width: 150px; text-align: left; }
+  .quick { font-size: 13px; padding: 7px 16px; opacity: .85; }
   .stats-line { font-size: 12px; opacity: .85; margin-top: 10px; color: #cdd8ee; }
   .stats-line b { color: #ffd479; }
   .record-note { font-size: 13px; margin: 2px auto 4px; color: #7dff9b; font-weight: bold; min-height: 18px; }
@@ -211,10 +226,19 @@
         your nerve. <b>Your gold is secret</b>, so bluff: scare rivals off early or snipe at the buzzer. Matching unit types
         unlock <b>synergy bonuses</b>. Then your squads clash in an animated battle. Most points after 3 rounds takes the crown.
       </div>
+      <div class="diff-row" id="diffRow">
+        <span class="diff-label">Difficulty:</span>
+        <button type="button" class="diff-btn" data-diff="easy">Easy</button>
+        <button type="button" class="diff-btn" data-diff="normal">Normal</button>
+        <button type="button" class="diff-btn" data-diff="hard">Hard</button>
+        <span class="diff-blurb" id="diffBlurb"></span>
+      </div>
       <div class="menu-row">
         <button id="btnStart" type="button">START</button>
         <button id="btnHowTo" type="button" class="alt">HOW TO PLAY</button>
+        <button id="btnMute" type="button" class="alt" title="Toggle sound">🔊 SOUND</button>
       </div>
+      <button id="btnQuick" type="button" class="alt quick" title="Skip the auction — watch a battle with random squads">⚡ QUICK BATTLE (test)</button>
       <div class="hint">Tip: rivals can see what you <i>won</i> and what you <i>paid</i> &mdash; but never how much gold you have left. Use that.</div>
       <div class="stats-line" id="statsLine"></div>
     </div>
@@ -305,10 +329,12 @@
 
   // ---------- state ----------
   let players = [];      // {id,name,you,gold,squad:[],wins,points,persona}
+  let testMode = false;  // true during a QUICK BATTLE test run (stats not recorded)
   let round = 1;
   const MAX_ROUNDS = 3;
   const UNITS_PER_ROUND = 8;    // kept at 8 — enough for synergies with 4 buyers, without dragging the timed auction
-  const START_GOLD = 75;        // retuned after synergies were made STACKING (which raised the player's ceiling); lands optimal play back near ~30%.
+  const START_GOLD = 80;        // nudged up from 75 to offset the free-for-all CHAOS below.
+  const CHAOS = 0.25;           // free-for-all target randomness: 0 = focus weakest, 1 = fully random. 0.25 = visibly chaotic, strong squads still favoured.
   let auctionQueue = [];
   let roundLineup = [];     // full snapshot of this round's units (for the preview strip)
   let lineupPos = 0;        // index of the unit currently/last on the block
@@ -319,6 +345,51 @@
   const randi = (a, b) => Math.floor(rand(a, b + 1));
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // ---------- sound (Web Audio, synthesized — no asset files) ----------
+  // Fully optional and safe: no AudioContext (headless tests / old browsers) →
+  // every call is a no-op. Muted state persists. Audio can only start after a
+  // user gesture (browser autoplay policy), so we lazily create the context on
+  // the first click and resume it then.
+  const SND = {
+    ctx: null, muted: false, ready: false,
+    init() {
+      if (this.ready) return;
+      try { this.muted = localStorage.getItem("bluffMarket.muted") === "1"; } catch (e) {}
+      const AC = (typeof window !== "undefined") && (window.AudioContext || window.webkitAudioContext);
+      if (AC) { try { this.ctx = new AC(); } catch (e) { this.ctx = null; } }
+      this.ready = true;
+    },
+    resume() { if (this.ctx && this.ctx.state === "suspended") { try { this.ctx.resume(); } catch (e) {} } },
+    setMuted(m) { this.muted = m; try { localStorage.setItem("bluffMarket.muted", m ? "1" : "0"); } catch (e) {} },
+    // one synth voice: freq sweep + gain envelope
+    tone(freq, dur, type, vol, slideTo) {
+      if (this.muted || !this.ctx) return;
+      const c = this.ctx, t0 = c.currentTime;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type || "sine";
+      o.frequency.setValueAtTime(freq, t0);
+      if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t0 + dur);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol || 0.2, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g); g.connect(c.destination);
+      o.start(t0); o.stop(t0 + dur + 0.02);
+    },
+    bid()      { this.tone(520, 0.08, "square", 0.12, 680); },
+    youBid()   { this.tone(680, 0.10, "square", 0.16, 900); },
+    tick()     { this.tone(1100, 0.04, "sine", 0.08); },
+    hit()      { this.tone(180, 0.09, "triangle", 0.16, 90); },
+    bigHit()   { this.tone(110, 0.16, "sawtooth", 0.22, 55); },
+    elim()     { this.tone(300, 0.30, "sawtooth", 0.2, 70); },
+    seq(notes, type, vol, gap, dur) {
+      if (this.muted || !this.ctx) return;
+      const st = (typeof setTimeout === "function") ? setTimeout : null;
+      notes.forEach((f, i) => { const play = () => this.tone(f, dur, type, vol); if (st) st(play, i*gap); else play(); });
+    },
+    win()  { this.seq([523,659,784,1047], "triangle", 0.2, 110, 0.22); },
+    lose() { this.seq([440,330,247], "sine", 0.16, 140, 0.26); },
+  };
 
   // ---------- persistent stats (localStorage, safe if unavailable) ----------
   // Gives the game a meta-layer: lifetime record + current/best win streak, so
@@ -351,11 +422,28 @@
            (stats.streak >= 2 ? ` · on a <b>${stats.streak}</b>-win streak!` : "");
   }
 
+  // ---------- difficulty ----------
+  // Scales two ALREADY-TUNED knobs: the player's starting gold and the rivals'
+  // bid aggression. Normal = the balanced defaults (unchanged, ~30% solo win).
+  // Easy gives you more gold + calmer rivals; Hard does the opposite.
+  const DIFFICULTY = {
+    easy:   { label: "Easy",   youGold: 1.30, aiBidMul: 0.85, blurb: "more gold, calmer rivals" },
+    normal: { label: "Normal", youGold: 1.00, aiBidMul: 1.00, blurb: "the balanced default" },
+    hard:   { label: "Hard",   youGold: 0.80, aiBidMul: 1.15, blurb: "less gold, hungrier rivals" },
+  };
+  let difficulty = "normal";
+  try { const d = localStorage.getItem("bluffMarket.difficulty"); if (d && DIFFICULTY[d]) difficulty = d; } catch (e) {}
+  function setDifficulty(d) { if (DIFFICULTY[d]) { difficulty = d; try { localStorage.setItem("bluffMarket.difficulty", d); } catch (e) {} } }
+  function diff() { return DIFFICULTY[difficulty]; }
+
   // ---------- setup ----------
   function newGame() {
+    testMode = false;
+    const d = diff();
+    const youGold = Math.round(START_GOLD * d.youGold);
     const shuffledNames = [...NAMES].sort(() => Math.random() - 0.5);
     players = [
-      { id: 0, name: "You", you: true, gold: START_GOLD, squad: [], wins: 0, points: 0, persona: null }
+      { id: 0, name: "You", you: true, gold: youGold, squad: [], wins: 0, points: 0, persona: null }
     ];
     const personaPool = [...PERSONAS].sort(() => Math.random() - 0.5);
     for (let i = 1; i <= 3; i++) {
@@ -381,8 +469,10 @@
   };
   function makeUnit() {
     const type = pick(TYPES);
-    const tier = Math.random() < 0.20 ? "elite" : "common";
-    const mult = tier === "elite" ? 1.6 : 1;
+    // tier roll: ~5% legendary (monster), else ~20% elite, else common
+    const r = Math.random();
+    const tier = r < 0.05 ? "legendary" : r < 0.25 ? "elite" : "common";
+    const mult = tier === "legendary" ? 2.2 : tier === "elite" ? 1.6 : 1;
     const [hLo, hHi, aLo, aHi] = STAT_PROFILE[type];
     return {
       name: pick(NAMES),
@@ -405,6 +495,30 @@
     nextAuction();
   }
 
+  // TEST SHORTCUT: skip the auction entirely and jump straight to a battle
+  // royale with randomly-filled squads, so the fighting can be watched without
+  // bidding through three rounds. Uses the real battle path, so what's shown is
+  // genuine. Each squad gets 3–6 random units (free).
+  function quickBattle() {
+    testMode = true;
+    const shuffledNames = [...NAMES].sort(() => Math.random() - 0.5);
+    players = [{ id: 0, name: "You", you: true, gold: 0, squad: [], wins: 0, points: 0, persona: null }];
+    const personaPool = [...PERSONAS].sort(() => Math.random() - 0.5);
+    for (let i = 1; i <= 3; i++) {
+      players.push({ id: i, name: shuffledNames[i - 1], you: false, gold: 0, squad: [], wins: 0, points: 0,
+        persona: personaPool[(i - 1) % personaPool.length], apparentGold: 0 });
+    }
+    players.forEach(p => { const n = randi(3, 6); for (let k = 0; k < n; k++) p.squad.push(makeUnit()); });
+    // make it a ONE-OFF: set the last round so the post-battle button is
+    // "SEE FINAL RESULT" (ends cleanly) rather than dropping into a real auction.
+    round = MAX_ROUNDS;
+    $("scrIntro").classList.add("hidden");
+    $("scrEnd").classList.add("hidden");
+    $("scrGame").classList.remove("hidden");
+    $("roundTag").textContent = `TEST BATTLE`;
+    startBattles();   // straight to the royale, skipping the auction
+  }
+
   // ---------- players strip ----------
   function renderPlayers(revealGold) {
     const strip = $("playersStrip");
@@ -419,7 +533,7 @@
             : `<span class="gold hidden">~${p.apparentGold}g?</span>`);
       const syner = squadSynergies(p.squad);
       const synTxt = syner.length ? syner.map(s => s.text).join(" · ") : "&nbsp;";
-      const roster = p.squad.map(u => `<span class="chip ${u.type}" title="${u.name} ${u.type} ${u.hp}hp/${u.atk}atk">${u.type[0]}${u.tier==='elite'?'★':''}</span>`).join("");
+      const roster = p.squad.map(u => `<span class="chip ${u.type}" title="${u.name} ${u.type} ${u.hp}hp/${u.atk}atk">${u.type[0]}${u.tier==='legendary'?'✦':u.tier==='elite'?'★':''}</span>`).join("");
       card.innerHTML = `
         <h3><span>${p.you ? "YOU" : p.name}</span> ${goldShown}</h3>
         ${p.you ? "" : `<div class="pers">${p.persona.desc}</div>`}
@@ -471,9 +585,9 @@
   function renderLineup() {
     const minis = roundLineup.map((u, i) => {
       const state = i < lineupPos ? "sold" : (i === lineupPos ? "now" : "");
-      return `<div class="mini ${state}">
+      return `<div class="mini ${state} ${u.tier==='legendary'?'legendary':''}">
         <span class="mtype ut ${u.type}">${u.type}</span>
-        <div class="mname">${u.name}${u.tier==='elite'?' <span class="mstar">★</span>':''}</div>
+        <div class="mname">${u.name}${u.tier==='legendary'?' <span class="mleg">✦</span>':u.tier==='elite'?' <span class="mstar">★</span>':''}</div>
         <div class="mstat"><span class="mhp">${u.hp} HP</span><span class="matk">${u.atk} ATK</span></div>
         <div class="mval">~${estimateValue(u)}g</div>
       </div>`;
@@ -492,8 +606,8 @@
       ${renderLineup()}
       <div class="auction-wrap">
         <div class="unit-card">
-          <div class="uname">${u.name} ${u.tier === 'elite' ? '★' : ''}</div>
-          <div class="utype ut ${u.type}">${u.type}${u.tier === 'elite' ? ' · ELITE' : ''}</div>
+          <div class="uname ${u.tier==='legendary'?'leg':''}">${u.name} ${u.tier === 'legendary' ? '✦' : u.tier === 'elite' ? '★' : ''}</div>
+          <div class="utype ut ${u.type}">${u.type}${u.tier === 'legendary' ? ' · LEGENDARY' : u.tier === 'elite' ? ' · ELITE' : ''}</div>
           <div class="ustats">HP <b>${u.hp}</b> &nbsp;·&nbsp; ATK <b>${u.atk}</b></div>
           <div class="uvalue">Est. value <b>~${estimateValue(u)}g</b></div>
           <div class="uability">${ABILITY[u.type]}</div>
@@ -598,6 +712,7 @@
     auc.time = RESET_TIME;                      // reset the clock
     const nm = p.you ? "You" : p.name;
     pushFeed(`${nm} bid ${amt}g`, p.you ? "you" : "");
+    if (p.you) SND.youBid(); else SND.bid();
     // schedule rivals to possibly counter after a reaction delay
     players.forEach(q => {
       if (q.you || q === p) return;
@@ -647,6 +762,8 @@
 
     // clock / UI
     const t = Math.max(0, auc.time);
+    // tense ticking on each whole second while the clock is low
+    if (t < 3 && auc.leader) { const sec = Math.ceil(t); if (sec !== auc._lastTickSec) { auc._lastTickSec = sec; if (sec > 0) SND.tick(); } }
     const timer = $("aucTimer"), bar = $("aucBar");
     if (timer) { timer.textContent = t.toFixed(1); timer.className = "timer-ring" + (t < 2.5 ? " low" : ""); }
     if (bar) {
@@ -711,7 +828,8 @@
   // per-squad synergy fit (those are situational). Rounded to a tidy number.
   function estimateValue(unit) {
     let v = unit.hp * 0.6 + unit.atk * 1.4;
-    if (unit.tier === "elite") v *= 1.2;
+    if (unit.tier === "legendary") v *= 1.35;
+    else if (unit.tier === "elite") v *= 1.2;
     return Math.max(1, Math.round(v));
   }
 
@@ -725,9 +843,10 @@
     const have = counts[unit.type] || 0;
     if (have === 1) val *= 1.6;      // completes a synergy pair
     else if (have === 2) val *= 1.9; // pushes to the strong 3-set
-    if (unit.tier === "elite") val *= 1.2;
+    if (unit.tier === "legendary") val *= 1.5;      // rivals covet legendaries
+    else if (unit.tier === "elite") val *= 1.2;
 
-    let bid = val * p.persona.bidMul * rand(0.7, 1.15);
+    let bid = val * p.persona.bidMul * diff().aiBidMul * rand(0.7, 1.15);
     // occasional overbid (nerve)
     if (Math.random() < p.persona.overbid) bid *= rand(1.2, 1.5);
     bid = Math.round(clamp(bid, 0, p.gold));
@@ -949,16 +1068,28 @@
     log.push({ cls:"head", text: `Battle royale: ${squads.map(s=>`${s.name} (${sqAlive(s)}u)`).join(" vs ")}` });
 
     // pick the weakest living enemy unit across all OTHER squads
+    // Free-for-all targeting with real randomness: gather every living enemy
+    // unit across ALL other squads, then pick with a WEIGHTED random bias toward
+    // weaker targets. So focus-fire is a tendency, not a rule — the brawl
+    // genuinely scatters, which is the chaos a free-for-all should have.
     function pickTarget(attackerSquad) {
-      let best = null;
+      const cands = [];
       for (const s of squads) {
         if (s === attackerSquad || sqAlive(s) === 0) continue;
         for (let ui = 0; ui < s.units.length; ui++) {
-          const u = s.units[ui];
-          if (u.hp <= 0) continue;
-          if (!best || u.hp < best.u.hp || (Math.random() < 0.12)) best = { s, ui, u };
+          if (s.units[ui].hp > 0) cands.push({ s, ui, u: s.units[ui] });
         }
       }
+      if (!cands.length) return null;
+      // Free-for-all randomness, tunable via ONE knob (CHAOS 0..1): 0 = always
+      // focus the weakest (deterministic), 1 = pure random target. The default
+      // is a light-moderate value — the brawl visibly scatters while a strong
+      // squad is still clearly favoured. (Measured tradeoff: higher CHAOS lowers
+      // a solo player's win rate sharply in a 1-of-4 free-for-all — see
+      // DECISIONS §27. Exposed here so it's a one-number dial.)
+      if (Math.random() < CHAOS) return cands[Math.floor(Math.random() * cands.length)];
+      let best = null;
+      for (const c of cands) { if (!best || c.u.hp < best.u.hp || Math.random() < 0.12) best = c; }
       return best;
     }
 
@@ -1060,6 +1191,7 @@
       </div>
       <div class="vs-line" id="vsLine"></div>
       <canvas id="battleCanvas" width="640" height="300"></canvas>
+      <div class="kill-feed" id="killFeed"></div>
       <div class="battle-subtitle" id="battleSub"></div>
       <div class="footer-btns">
         <button id="btnSkip" type="button" class="alt">SKIP ANIMATION</button>
@@ -1071,6 +1203,54 @@
 
   // ----- canvas fight animation -----
   const animState = { raf: 0, skip: false };
+
+  // A TOP-DOWN fighter token: a body disc with a shield arc and a weapon that
+  // points along `ang` (radians, world space). atk 0..1 lunges the weapon out;
+  // hurt 0..1 flashes white; dead fades + desaturates. Designed to later be a
+  // 3D model billboarded at the same (x,y) — the shapes map to a mesh cleanly.
+  function drawTopFighter(ctx, x, y, o) {
+    const { color, dark, ang, atk, hurt, dead, deadT, weapon } = o;
+    const s = o.scale || 0.64;
+    ctx.save();
+    ctx.translate(x, y);
+    // ground shadow (stays put as the body lifts slightly on attack)
+    ctx.save(); ctx.globalAlpha *= 0.3; ctx.fillStyle = "#000";
+    ctx.beginPath(); ctx.ellipse(0, 0, 16*s, 9*s, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
+    ctx.scale(s, s);
+    ctx.rotate(ang || 0);                 // orient the whole token toward its facing
+    if (dead) ctx.globalAlpha *= (1 - (deadT||0)*0.5);
+
+    const body = hurt > 0.4 ? "#ffffff" : color;
+    // weapon reach (points along +x after rotation), lunges on attack
+    const reach = 14 + (atk||0) * 14;
+    if (weapon === "Archer") {
+      ctx.strokeStyle = "#e8d5a0"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(reach-4, 0, 7, -1.1, 1.1); ctx.stroke();
+    } else if (weapon === "Mage") {
+      const gg = ctx.createRadialGradient(reach, 0, 1, reach, 0, 8);
+      gg.addColorStop(0,"#fff"); gg.addColorStop(1, color);
+      ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(reach, 0, 5, 0, Math.PI*2); ctx.fill();
+    } else {
+      // melee blade/dagger as a line from the body outward
+      ctx.strokeStyle = "#d8dde6"; ctx.lineWidth = weapon === "Rogue" ? 2.5 : 3.5; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(reach, 0); ctx.stroke();
+    }
+    // shield arc on the left flank (opposite the weapon)
+    ctx.strokeStyle = lighten(color, 0.3); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, 11, Math.PI*0.6, Math.PI*1.4); ctx.stroke();
+    // body disc with a rim
+    const bg = ctx.createRadialGradient(-3, -3, 1, 0, 0, 12);
+    bg.addColorStop(0, body === "#ffffff" ? "#fff" : lighten(body, 0.25));
+    bg.addColorStop(1, dark);
+    ctx.fillStyle = body === "#ffffff" ? "#fff" : bg;
+    ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.stroke();
+    // a small nose/helmet nub marks the front (facing) edge
+    ctx.fillStyle = lighten(color, 0.5);
+    ctx.beginPath(); ctx.arc(7, 0, 3, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
 
   // lighten a #rrggbb hex toward white by t (0..1) — for metallic highlights.
   function lighten(hex, t) {
@@ -1213,7 +1393,7 @@
     const cv = $("battleCanvas");
     const ctx = cv && cv.getContext ? cv.getContext("2d") : null;
     if (!ctx) { finishRoyaleUI(roy); return; }
-    const W = cv.width, H = cv.height, groundY = 236;
+    const W = cv.width, H = cv.height;
     let shake = 0, flash = 0;
     const sparks = [], projectiles = [], motes = [], hits = [];
 
@@ -1221,39 +1401,53 @@
     const start = ev[0];                 // { squads: [{pi,name,you,units[]}] }
     const nSquads = start.squads.length;
 
-    // lay the squads out in evenly spaced columns across the arena; each squad
-    // is a small 2-row cluster. forms[pi] = array of unit sprites.
+    // ---- TOP-DOWN ARENA ----
+    // Squads are positioned AROUND the arena (evenly on a ring) and face the
+    // centre, seen from above. Positions are kept as logical field coords so a
+    // future 3D renderer can reuse the whole layout + sim and only swap the
+    // projection: fieldToScreen() is the ONE seam to change for 3D (replace the
+    // identity mapping with a perspective/iso projection).
+    const ARENA = { cx: W/2, cy: H/2 + 8, rx: W*0.40, ry: H*0.38 };  // elliptical floor
+    function fieldToScreen(fx, fy) { return { x: fx, y: fy }; }       // 3D SEAM: identity today
+
     const forms = [];
-    const names = [], youFlags = [];
+    const names = [], youFlags = [], homeCentre = [];
     start.squads.forEach((sq, slot) => {
       const pal = SLOT_COLORS[sq.pi % SLOT_COLORS.length];
-      const cx = W * (slot + 1) / (nSquads + 1);     // column centre
+      // spread squads around the ring; YOU anchored at the bottom (slot order
+      // is already stable), others spaced evenly. Angle 90deg = bottom.
+      const ang = Math.PI/2 + (slot / nSquads) * Math.PI * 2;
+      const cx = ARENA.cx + Math.cos(ang) * ARENA.rx * 0.82;
+      const cy = ARENA.cy + Math.sin(ang) * ARENA.ry * 0.82;
+      homeCentre[sq.pi] = { x: cx, y: cy, ang };
       names[sq.pi] = sq.you ? "YOU" : sq.name;
       youFlags[sq.pi] = sq.you;
       const n = sq.units.length;
-      const perRow = Math.ceil(n / 2);
-      const gap = perRow >= 3 ? 22 : 26;
-      const scale = n >= 6 ? 0.5 : n >= 4 ? 0.56 : 0.64;
-      const facing = cx < W/2 ? 1 : -1;              // face toward centre
+      const scale = n >= 6 ? 0.52 : n >= 4 ? 0.58 : 0.66;
+      // cluster units in a small grid around the squad's ring point
+      const perRow = Math.ceil(Math.sqrt(n));
+      const gap = 20;
       forms[sq.pi] = sq.units.map((u, i) => {
-        const rowIdx = i % 2, col2 = Math.floor(i / 2);
-        const spanW = (perRow - 1) * gap;
-        const hx = cx - spanW/2 + col2 * gap;
-        const hy = groundY - rowIdx * 24 - (col2 % 2) * 5;
+        const gx = (i % perRow) - (perRow - 1) / 2;
+        const gy = Math.floor(i / perRow) - (Math.ceil(n / perRow) - 1) / 2;
+        const hx = cx + gx * gap;
+        const hy = cy + gy * gap;
         return {
           type: u.type, weapon: u.type,
           hp: u.hp, maxHp: u.maxHp, down: u.hp <= 0,
-          homeX: hx, homeY: hy,       // formation slot
-          ox: 0, oy: 0, tox: 0, toy: 0, // current + target offset from home (movement)
-          x: hx, y: hy,                // live position (home + offset), set each frame
-          scale, col: pal.col, dark: pal.dark, facing,
+          homeX: hx, homeY: hy,
+          ox: 0, oy: 0, tox: 0, toy: 0,
+          x: hx, y: hy,
+          scale, col: pal.col, dark: pal.dark,
+          facing: 1, ang: ang + Math.PI,   // facing angle: toward centre (top-down)
           atk: 0, hurt: 0, deadT: 0, bob: Math.random()*Math.PI*2,
-          step: Math.random()*Math.PI*2, // idle foot-shuffle phase
+          step: Math.random()*Math.PI*2,
         };
       });
     });
-    const midX = [];
-    forms.forEach((f, pi) => { if (f && f.length) midX[pi] = f.reduce((s,u)=>s+u.x,0)/f.length; });
+    // label anchor per squad (screen-space centre of its cluster)
+    const midX = [], labelY = [];
+    forms.forEach((f, pi) => { if (f && f.length) { midX[pi] = homeCentre[pi].x; labelY[pi] = homeCentre[pi].y; } });
 
     const vs = $("vsLine");
     if (vs) vs.innerHTML = start.squads.map(sq =>
@@ -1264,6 +1458,19 @@
     let eventTimer = 0;
     const STEP = 0.34;           // seconds between events
     let last = performance.now ? performance.now() : Date.now();
+    let elimSeen = 0;            // how many squads have been eliminated so far
+
+    // append a line to the kill feed as squads fall (Nth place filled in)
+    function killFeedAdd(pi) {
+      elimSeen++;
+      const place = nSquads - elimSeen + 1;   // Nth elimination = this placement
+      const feed = $("killFeed"); if (!feed || typeof document === "undefined" || !document.createElement) return;
+      const col = SLOT_COLORS[pi % SLOT_COLORS.length].col;
+      const row = document.createElement("div");
+      row.className = "kf";
+      row.innerHTML = `${ordinal(place)}: <b style="color:${col}">${names[pi]}</b> eliminated`;
+      feed.appendChild(row);
+    }
 
     const allUnits = () => forms.flat();
     function unitAt(pi, ui){ return forms[pi] && forms[pi][ui]; }
@@ -1273,12 +1480,18 @@
     // fighter are now the primary health readout, so no aggregate bar here.
     function squadLabel(pi) {
       const form = forms[pi]; if (!form || !form.length) return;
-      const x = midX[pi], alive = aliveN(form);
-      ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center";
-      ctx.fillStyle = SLOT_COLORS[pi % SLOT_COLORS.length].col;
-      ctx.fillText(names[pi], x, 18);
-      ctx.fillStyle = alive ? "rgba(245,245,245,.8)" : "#ff6b5a"; ctx.font = "11px sans-serif";
-      ctx.fillText(alive ? `${alive}/${form.length} left` : "eliminated", x, 31);
+      const alive = aliveN(form);
+      // place the label just outside the cluster, nudged away from arena centre
+      const c = homeCentre[pi];
+      const lx = clamp(c.x, 44, W-44);
+      const ly = clamp(c.y + (c.y < ARENA.cy ? -34 : 30), 14, H-6);
+      ctx.textAlign = "center";
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillText(names[pi], lx+1, ly+1);
+      ctx.fillStyle = SLOT_COLORS[pi % SLOT_COLORS.length].col; ctx.fillText(names[pi], lx, ly);
+      ctx.font = "11px sans-serif";
+      ctx.fillStyle = alive ? "rgba(245,245,245,.85)" : "#ff6b5a";
+      ctx.fillText(alive ? `${alive}/${form.length} left` : "eliminated", lx, ly + 13);
     }
 
     function applyEnd() {
@@ -1328,24 +1541,24 @@
             const dmgRound = Math.round(e.dmg);
             if (attacker) {
               attacker.atk = 1;
-              attacker.facing = defender.x >= attacker.x ? 1 : -1;   // face the target
+              // top-down: face the target by ANGLE, and advance toward it in 2D
+              attacker.ang = Math.atan2(defender.homeY - attacker.homeY, defender.homeX - attacker.homeX);
               if (!ranged) {
-                // ADVANCE most of the way to the target, then ease back home
-                attacker.tox = clamp((defender.x - attacker.homeX) * 0.72, -220, 220);
-                attacker.toy = (defender.homeY - attacker.homeY) * 0.72;
+                attacker.tox = clamp((defender.homeX - attacker.homeX) * 0.7, -260, 260);
+                attacker.toy = clamp((defender.homeY - attacker.homeY) * 0.7, -200, 200);
               }
             }
             const landImpact = () => {
               defender.hurt = 1; defender.hp = e.defHp;
-              spawnSparks(defender.x, defender.y - 30);
+              spawnSparks(defender.x, defender.y);
               shake = e.volley ? 4 : (e.dmg > 14 ? 10 : 6);
-              if (e.dmg > 14) flash = 0.45;
-              hits.push({ x: defender.x, y: defender.y - 56, v: "-"+dmgRound, t: 1, col: e.volley ? "#bfe0ff" : "#ffd479" });
+              if (e.dmg > 14) { flash = 0.45; SND.bigHit(); } else if (!e.volley) SND.hit();
+              hits.push({ x: defender.x, y: defender.y - 22, v: "-"+dmgRound, t: 1, col: e.volley ? "#bfe0ff" : "#ffd479" });
             };
             if (ranged && attacker) {
               projectiles.push({
-                x: attacker.x + attacker.facing*14, y: attacker.y - 40*attacker.scale/0.64,
-                tx: defender.x, ty: defender.y - 34*defender.scale/0.64,
+                x: attacker.x + Math.cos(attacker.ang)*12, y: attacker.y + Math.sin(attacker.ang)*12,
+                tx: defender.x, ty: defender.y,
                 kind: attacker.type === "Archer" ? "arrow" : "bolt",
                 col: attacker.type === "Archer" ? "#e8d5a0" : "#c58fff",
                 p: 0, onHit: landImpact
@@ -1355,13 +1568,13 @@
         } else if (e.kind === "dodge") {
           const attacker = unitAt(e.pi, e.ui), defender = unitAt(e.tpi, e.tui);
           if (attacker) attacker.atk = 1;
-          if (defender) hits.push({ x: defender.x, y: defender.y - 56, v: "DODGE", t: 1, col:"#7dff9b" });
+          if (defender) hits.push({ x: defender.x, y: defender.y - 22, v: "DODGE", t: 1, col:"#7dff9b" });
         } else if (e.kind === "ability") {
           const u = unitAt(e.pi, e.ui);
           if (u) {
             const col = e.name === "BULWARK" ? "#8fd0ff" : e.name === "FRENZY" ? "#ff6b5a"
                       : e.name === "BURST" ? "#c58fff" : e.name === "BACKSTAB" ? "#ffb347" : "#fff";
-            hits.push({ x: u.x, y: u.y - 74, v: e.name, t: 1.1, col, big: true });
+            hits.push({ x: u.x, y: u.y - 34, v: e.name, t: 1.1, col, big: true });
             if (!u.down) u.atk = Math.max(u.atk, 0.6);
           }
           eventTimer = 0.18;
@@ -1372,8 +1585,8 @@
           if (u) { u.down = true; u.hp = 0; shake = 8; }
         } else if (e.kind === "eliminated") {
           const f = forms[e.pi]; if (f) f.forEach(u => { u.down = true; u.hp = 0; });
-          shake = 12;
-          if (midX[e.pi] != null) hits.push({ x: midX[e.pi], y: 72, v: names[e.pi] + " OUT", t: 1.4, col:"#ff6b5a", big: true });
+          shake = 12; SND.elim(); killFeedAdd(e.pi);
+          if (midX[e.pi] != null) hits.push({ x: midX[e.pi], y: labelY[e.pi] - 10, v: names[e.pi] + " OUT", t: 1.4, col:"#ff6b5a", big: true });
         } else if (e.kind === "done") {
           /* final ordering already reflected */
         }
@@ -1391,78 +1604,61 @@
       }
     }
 
+    // top-down arena floor: an elliptical field with a border ring, centre
+    // mark and faint grid. (3D SEAM: a future renderer would draw a projected
+    // ground plane here instead; the fighters/sim above stay unchanged.)
     function drawBackdrop() {
-      // --- dusk sky with vertical gradient ---
-      const sky = ctx.createLinearGradient(0,0,0,groundY);
-      sky.addColorStop(0, "#1b2a4a"); sky.addColorStop(0.55, "#3a4f74"); sky.addColorStop(1, "#8a6f6a");
-      ctx.fillStyle = sky; ctx.fillRect(0,0,W,groundY);
-      // --- low sun glow near the horizon ---
-      const sun = ctx.createRadialGradient(W*0.5, groundY-6, 6, W*0.5, groundY-6, 190);
-      sun.addColorStop(0, "rgba(255,221,150,.55)"); sun.addColorStop(0.4, "rgba(255,180,120,.22)"); sun.addColorStop(1, "rgba(255,180,120,0)");
-      ctx.fillStyle = sun; ctx.fillRect(0,0,W,groundY);
-      // --- drifting clouds (slow parallax) ---
-      const ct = (last||0)/1000;
+      // backing fill
+      ctx.fillStyle = "#0e1526"; ctx.fillRect(0,0,W,H);
+      // arena floor (radial so the centre reads as lit)
+      const fl = ctx.createRadialGradient(ARENA.cx, ARENA.cy, 20, ARENA.cx, ARENA.cy, ARENA.rx);
+      fl.addColorStop(0, "#6a5a3e"); fl.addColorStop(0.7, "#54472f"); fl.addColorStop(1, "#3a3022");
       ctx.save();
-      for (let i=0;i<4;i++){
-        const cw = 90 + i*26, cx = ((W*0.2 + i*230 + ct*(6+i*2)) % (W+200)) - 100, cy = 34 + (i%2)*26;
-        ctx.globalAlpha = 0.10 + 0.04*(i%2); ctx.fillStyle = "#cdd8ee";
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, cw*0.5, 12, 0, 0, Math.PI*2);
-        ctx.ellipse(cx+cw*0.28, cy-6, cw*0.32, 11, 0, 0, Math.PI*2);
-        ctx.ellipse(cx-cw*0.28, cy-2, cw*0.3, 10, 0, 0, Math.PI*2);
-        ctx.fill();
+      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx, ARENA.ry, 0, 0, Math.PI*2);
+      ctx.fillStyle = fl; ctx.fill();
+      ctx.clip();
+      // faint grid lines for a sense of ground
+      ctx.strokeStyle = "rgba(0,0,0,.14)"; ctx.lineWidth = 1;
+      for (let gx = -ARENA.rx; gx <= ARENA.rx; gx += 44) {
+        ctx.beginPath(); ctx.moveTo(ARENA.cx+gx, ARENA.cy-ARENA.ry); ctx.lineTo(ARENA.cx+gx, ARENA.cy+ARENA.ry); ctx.stroke();
       }
+      for (let gy = -ARENA.ry; gy <= ARENA.ry; gy += 40) {
+        ctx.beginPath(); ctx.moveTo(ARENA.cx-ARENA.rx, ARENA.cy+gy); ctx.lineTo(ARENA.cx+ARENA.rx, ARENA.cy+gy); ctx.stroke();
+      }
+      // centre mark
+      ctx.strokeStyle = "rgba(255,210,150,.18)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, 30, 28, 0, 0, Math.PI*2); ctx.stroke();
       ctx.restore();
-      // --- far hills (hazy, high) ---
-      ctx.fillStyle = "#33455f";
-      ctx.beginPath(); ctx.moveTo(0,groundY);
-      ctx.quadraticCurveTo(W*0.18, groundY-82, W*0.4, groundY-40);
-      ctx.quadraticCurveTo(W*0.66, groundY-96, W, groundY-48);
-      ctx.lineTo(W,groundY); ctx.closePath(); ctx.fill();
-      // --- near hills (darker, lower) ---
-      ctx.fillStyle = "#283a4e";
-      ctx.beginPath(); ctx.moveTo(0,groundY);
-      ctx.quadraticCurveTo(W*0.26, groundY-44, W*0.5, groundY-14);
-      ctx.quadraticCurveTo(W*0.78, groundY-56, W, groundY-20);
-      ctx.lineTo(W,groundY); ctx.closePath(); ctx.fill();
-      // --- ground with gradient + a lit strip near the horizon ---
-      const gr = ctx.createLinearGradient(0,groundY,0,H);
-      gr.addColorStop(0,"#7a6646"); gr.addColorStop(0.5,"#5f4f36"); gr.addColorStop(1,"#3f3527");
-      ctx.fillStyle = gr; ctx.fillRect(0,groundY,W,H-groundY);
-      ctx.fillStyle = "rgba(255,210,150,.10)"; ctx.fillRect(0,groundY,W,3);
-      // scattered ground detail (deterministic so it doesn't flicker)
-      ctx.fillStyle = "rgba(0,0,0,.18)";
-      for (let i=0;i<46;i++){
-        const gx = (i*137.5) % W, gy = groundY + 6 + ((i*53) % (H-groundY-8));
-        ctx.fillRect(gx, gy, 2 + (i%3), 1 + (i%2));
-      }
-      ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+      // border ring
+      ctx.strokeStyle = "#8a6f3a"; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx, ARENA.ry, 0, 0, Math.PI*2); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,230,180,.25)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx-3, ARENA.ry-3, 0, 0, Math.PI*2); ctx.stroke();
     }
 
     function drawVignette() {
-      const vg = ctx.createRadialGradient(W/2, H*0.42, H*0.28, W/2, H*0.5, H*0.95);
-      vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.42)");
+      const vg = ctx.createRadialGradient(W/2, H*0.5, H*0.30, W/2, H*0.5, H*0.95);
+      vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.45)");
       ctx.fillStyle = vg; ctx.fillRect(0,0,W,H);
     }
 
     function drawFormation(form, t) {
-      // draw units sorted by y so nearer ones overlap correctly as they move
+      // draw units sorted by screen-y so lower (nearer) ones overlap on top
       const order = form.map((u,i)=>i).sort((a,b)=> form[a].y - form[b].y);
       for (const i of order) {
         const u = form[i];
-        const bob = u.down ? 0 : Math.sin(t*2 + u.bob) * 1.2;
+        const breathe = u.down ? 0 : Math.sin(t*2 + u.bob) * 0.5;
         const fade = u.down ? (1 - u.deadT * 0.65) : 1;
-        if (u.down && u.deadT >= 1) { ctx.globalAlpha = 0.28; } else { ctx.globalAlpha = fade; }
-        drawWarrior(ctx, u.x, u.y + bob + (u.down ? u.deadT*4 : 0), {
-          color: u.col, dark: u.dark, facing: u.facing,
-          atk: u.atk, hurt: u.hurt, dead: u.down, weapon: u.weapon, scale: u.scale
+        ctx.globalAlpha = (u.down && u.deadT >= 1) ? 0.3 : fade;
+        drawTopFighter(ctx, u.x, u.y, {
+          color: u.col, dark: u.dark, ang: u.ang, atk: u.atk, hurt: u.hurt,
+          dead: u.down, deadT: u.deadT, weapon: u.weapon, scale: u.scale + breathe*0.01
         });
         ctx.globalAlpha = 1;
-        // PRIMARY per-unit HP bar, above each living unit's head
+        // PRIMARY per-unit HP ring/bar, just above the token
         if (!u.down) {
-          const bw = 30 * (u.scale/0.64), bh = 4;
-          const bx = u.x - bw/2, by = u.y - 78 * (u.scale/0.64) + bob;
+          const bw = 24 * (u.scale/0.64), bh = 3.5;
+          const bx = u.x - bw/2, by = u.y - 20 * (u.scale/0.64);
           ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(bx-1, by-1, bw+2, bh+2);
           const frac = clamp(u.hp / u.maxHp, 0, 1);
           ctx.fillStyle = frac > 0.5 ? "#7dff9b" : frac > 0.25 ? "#ffd479" : "#ff6b5a";
@@ -1471,8 +1667,8 @@
       }
     }
 
-    // seed a few drifting motes once
-    for (let i = 0; i < 18; i++) motes.push({ x: Math.random()*W, y: Math.random()*groundY, vx: rand(-6,6), vy: rand(-3,3), r: rand(0.6,1.8), a: rand(0.05,0.18) });
+    // seed a few drifting dust motes across the arena floor
+    for (let i = 0; i < 18; i++) motes.push({ x: Math.random()*W, y: Math.random()*H, vx: rand(-6,6), vy: rand(-5,5), r: rand(0.6,1.8), a: rand(0.05,0.16) });
 
     function drawAll(dt) {
       ctx.save();
@@ -1484,7 +1680,7 @@
       for (const m of motes) {
         m.x += m.vx*dt; m.y += m.vy*dt;
         if (m.x < 0) m.x += W; if (m.x > W) m.x -= W;
-        if (m.y < 0) m.y += groundY; if (m.y > groundY) m.y -= groundY;
+        if (m.y < 0) m.y += H; if (m.y > H) m.y -= H;
         ctx.globalAlpha = m.a; ctx.fillStyle = "#cdd8ee";
         ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, Math.PI*2); ctx.fill();
       }
@@ -1498,7 +1694,7 @@
         const pr = projectiles[i];
         pr.p += dt * 2.6;                      // ~0.38s flight
         const px = pr.x + (pr.tx - pr.x) * clamp(pr.p,0,1);
-        const py = pr.y + (pr.ty - pr.y) * clamp(pr.p,0,1) - Math.sin(clamp(pr.p,0,1)*Math.PI)*16; // arc
+        const py = pr.y + (pr.ty - pr.y) * clamp(pr.p,0,1);   // top-down: travels flat, no vertical arc
         if (pr.p >= 1) { if (pr.onHit) pr.onHit(); projectiles.splice(i,1); continue; }
         if (pr.kind === "arrow") {
           const ang = Math.atan2(pr.ty - pr.y, pr.tx - pr.x);
@@ -1586,8 +1782,10 @@
     const champ = sorted[0];
     const you = players[0];
     const youPlace = sorted.findIndex(p => p.you) + 1;
-    // record into the persistent lifetime stats, before building the screen
-    const flags = recordResult(youPlace, players.length);
+    // record into the persistent lifetime stats, before building the screen —
+    // but a QUICK-BATTLE test run must NOT pollute the real record.
+    const flags = testMode ? { newBestStreak:false, newBestPlace:false } : recordResult(youPlace, players.length);
+    if (champ.you) SND.win(); else SND.lose();
     $("endTitle").textContent = champ.you ? "YOU WIN!" : `${champ.name.toUpperCase()} WINS`;
     $("endSub").innerHTML = champ.you
       ? `You read the table and built the strongest squad. Finished <b>1st</b> with ${champ.points} points.`
@@ -1613,7 +1811,9 @@
         <div class="recap-row"><span>Synergies</span><span>${syn.length ? syn.map(s=>s.text).join(" · ") : "none"}</span></div>
         <div class="recap-row"><span>Points / gold left</span><span>${you.points} pts · ${you.gold}g</span></div>
       </div>`;
-    const lifetime = `<div class="stats-line" style="text-align:center;margin-top:10px">${statsLine()}</div>`;
+    const lifetime = testMode
+      ? `<div class="stats-line" style="text-align:center;margin-top:10px;opacity:.7">⚡ Test battle — not counted in your record.</div>`
+      : `<div class="stats-line" style="text-align:center;margin-top:10px">${statsLine()}</div>`;
     $("endStandings").innerHTML = recap + renderStandings() + lifetime;
     // keep the intro's stats line fresh for when the user returns there
     const sl = $("statsLine"); if (sl) sl.innerHTML = statsLine();
@@ -1656,6 +1856,11 @@
 
       <h4>COMBAT</h4>
       <div>Every unit has its own HP and attack, and all units fight independently, focusing the weakest enemy. Bigger, stronger squads win — but gold is limited, so choose your fights.</div>
+
+      <h4>UNIT RARITY</h4>
+      <div>Most units are common. Watch for <b>★ Elite</b> (stronger) and the rare
+      <b style="color:#ffcf5a">✦ Legendary</b> (a monster, ~1 in 20) — rivals will fight hard
+      for these, so winning one can swing a round, but it can also drain your gold.</div>
     `;
   }
 
@@ -1671,10 +1876,23 @@
 
   // ---------- wire up ----------
   function renderStatsLine(){ const sl = $("statsLine"); if (sl) sl.innerHTML = statsLine(); }
-  $("btnStart").addEventListener("click", newGame);
-  $("btnReplay").addEventListener("click", newGame);
-  $("btnHowTo").addEventListener("click", showHowTo);
+  function renderMuteBtn(){ const b = $("btnMute"); if (b) b.textContent = SND.muted ? "🔇 MUTED" : "🔊 SOUND"; }
+  function renderDiff(){
+    const row = $("diffRow"); if (!row) return;
+    row.querySelectorAll(".diff-btn").forEach(b => b.classList.toggle("sel", b.dataset.diff === difficulty));
+    const bl = $("diffBlurb"); if (bl) bl.textContent = "— " + diff().blurb;
+  }
+  { const row = $("diffRow"); if (row) row.querySelectorAll(".diff-btn").forEach(b =>
+      b.addEventListener("click", () => { setDifficulty(b.dataset.diff); renderDiff(); })); }
+  // any gesture both starts the game action AND unlocks/resumes audio
+  const gesture = () => { SND.init(); SND.resume(); };
+  $("btnStart").addEventListener("click", () => { gesture(); newGame(); });
+  $("btnReplay").addEventListener("click", () => { gesture(); newGame(); });
+  $("btnQuick").addEventListener("click", () => { gesture(); quickBattle(); });
+  $("btnHowTo").addEventListener("click", () => { gesture(); showHowTo(); });
   $("btnHowToBack").addEventListener("click", () => { hideHowTo(); renderStatsLine(); });
+  $("btnMute").addEventListener("click", () => { SND.init(); SND.setMuted(!SND.muted); SND.resume(); renderMuteBtn(); if (!SND.muted) SND.bid(); });
+  SND.init(); renderMuteBtn(); renderDiff();
   renderStatsLine();   // show lifetime record on the intro at load
 })();
 </script>
