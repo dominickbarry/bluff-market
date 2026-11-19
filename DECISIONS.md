@@ -363,6 +363,19 @@ drawn procedurally rather than adding sprites.
 - Committed to local main (DEFERRED deploy — now 3 commits ahead of the live site:
   sound, difficulty, legendary — batched per the user's instruction).
 
+## 24. Battle kill-feed (2026-11-18)
+- A **kill feed** under the royale canvas: as each squad is wiped, a line fades in —
+  "4th: NAME eliminated", "3rd: …" — so you can follow the story of a round (who fell
+  when, and your placement) instead of only seeing the final line.
+- Purely presentational: reuses the `eliminated` events simRoyale already emits; no sim,
+  combat, or balance change. Safe in headless tests (guarded on document.createElement).
+- Considered but DEFERRED a bid-able consumable/relic system — it would touch combat and
+  need full balance re-measurement, too big and risky for a batched polish turn. Noted as
+  a future feature instead of half-building it.
+- Verified: feed rows match elimination events in correct placement order. All gating
+  suites green. Committed to local main — now 4 commits ahead of the live site (sound,
+  difficulty, legendary, kill-feed), still batched per instruction.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

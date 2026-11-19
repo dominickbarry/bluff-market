@@ -177,6 +177,10 @@
   #battleCanvas { display: block; margin: 0 auto; background: linear-gradient(#1b2740,#0e1526);
     border: 1px solid #46598a; border-radius: 10px; max-width: 96%;
     box-shadow: 0 10px 30px rgba(0,0,0,.55), inset 0 0 40px rgba(0,0,0,.35); }
+  .kill-feed { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-top: 6px; min-height: 18px; }
+  .kill-feed .kf { font-size: 12px; opacity: 0; animation: kfIn .35s ease forwards; }
+  .kill-feed .kf b { font-weight: bold; }
+  @keyframes kfIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: .9; transform: none; } }
   .battle-subtitle { text-align: center; font-size: 13px; opacity: .85; margin-top: 6px; min-height: 18px; }
   .vs-line { text-align: center; font-size: 15px; font-weight: bold; margin-bottom: 4px; }
   .vs-line .me { color: #7dff9b; } .vs-line .foe { color: #ff9b7d; }
@@ -1146,6 +1150,7 @@
       </div>
       <div class="vs-line" id="vsLine"></div>
       <canvas id="battleCanvas" width="640" height="300"></canvas>
+      <div class="kill-feed" id="killFeed"></div>
       <div class="battle-subtitle" id="battleSub"></div>
       <div class="footer-btns">
         <button id="btnSkip" type="button" class="alt">SKIP ANIMATION</button>
@@ -1350,6 +1355,19 @@
     let eventTimer = 0;
     const STEP = 0.34;           // seconds between events
     let last = performance.now ? performance.now() : Date.now();
+    let elimSeen = 0;            // how many squads have been eliminated so far
+
+    // append a line to the kill feed as squads fall (Nth place filled in)
+    function killFeedAdd(pi) {
+      elimSeen++;
+      const place = nSquads - elimSeen + 1;   // Nth elimination = this placement
+      const feed = $("killFeed"); if (!feed || typeof document === "undefined" || !document.createElement) return;
+      const col = SLOT_COLORS[pi % SLOT_COLORS.length].col;
+      const row = document.createElement("div");
+      row.className = "kf";
+      row.innerHTML = `${ordinal(place)}: <b style="color:${col}">${names[pi]}</b> eliminated`;
+      feed.appendChild(row);
+    }
 
     const allUnits = () => forms.flat();
     function unitAt(pi, ui){ return forms[pi] && forms[pi][ui]; }
@@ -1458,7 +1476,7 @@
           if (u) { u.down = true; u.hp = 0; shake = 8; }
         } else if (e.kind === "eliminated") {
           const f = forms[e.pi]; if (f) f.forEach(u => { u.down = true; u.hp = 0; });
-          shake = 12; SND.elim();
+          shake = 12; SND.elim(); killFeedAdd(e.pi);
           if (midX[e.pi] != null) hits.push({ x: midX[e.pi], y: 72, v: names[e.pi] + " OUT", t: 1.4, col:"#ff6b5a", big: true });
         } else if (e.kind === "done") {
           /* final ordering already reflected */
