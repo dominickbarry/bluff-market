@@ -490,6 +490,18 @@ drawn procedurally rather than adding sprites.
   toward the target rather than snapping.
 - Rendering-only → balance unaffected; all gating suites green. Committed to local main.
 
+## 34. "Move until in range, then attack" — fix the VISUAL desync (2026-11-18, owner)
+- The SIM already did this (move while d>range, strike when d<=range). The problem was
+  animation-only: the figure walked to its goal at its own pace and could be lagging /
+  short of the true sim position when a `hit` event played, so attacks looked like they
+  came from mid-stride or out of range.
+- Fix: `hit` events now carry the attacker's true position (`afx,afy`); on a hit the
+  animation sets the attacker's walk goal to that spot and, if the figure is lagging >10px,
+  closes most of the gap at once — so the strike reads as "walked into range, then hit."
+- Animation-only; sim + balance unchanged; all gating suites green. Committed to local
+  main (now 4 commits ahead of live: real-time ticks, smaller-range/more-move, smooth
+  movement, this range-attack sync).
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

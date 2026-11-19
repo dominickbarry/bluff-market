@@ -1152,7 +1152,8 @@
       def.hp -= dmg;
       if (ability) ev({ kind:"ability", pi: atkSquad.pi, ui: atkUi, name: ability });
       if (defAbility) ev({ kind:"ability", pi: defSquad.pi, ui: di, name: defAbility });
-      ev({ kind:"hit", pi: atkSquad.pi, ui: atkUi, tpi: defSquad.pi, tui: di, dmg, defHp: Math.max(0,def.hp), volley: !!isVolley });
+      ev({ kind:"hit", pi: atkSquad.pi, ui: atkUi, tpi: defSquad.pi, tui: di, dmg, defHp: Math.max(0,def.hp), volley: !!isVolley,
+           afx: atkUnit.fx, afy: atkUnit.fy });   // attacker's true position, so the animation attacks from the right spot
       if (def.hp <= 0) { ev({ kind:"death", pi: defSquad.pi, ui: di }); }
     }
 
@@ -1608,6 +1609,15 @@
             const dmgRound = Math.round(e.dmg);
             if (attacker) {
               attacker.atk = 1;
+              // set the walk goal to the attacker's TRUE sim position (where it's
+              // actually in range), so the attack reads as "walked up, now strikes".
+              if (typeof e.afx === "number") {
+                attacker.tx = e.afx; attacker.ty = e.afy;
+                // if the figure is still lagging well behind, close most of the gap
+                // instantly so it doesn't fire from mid-stride far from the target.
+                const lag = dist(attacker.x, attacker.y, e.afx, e.afy);
+                if (lag > 10) { attacker.x += (e.afx - attacker.x) * 0.7; attacker.y += (e.afy - attacker.y) * 0.7; }
+              }
               // turn to face the target (smooth heading, not a snap); melee lunges
               attacker.hd = Math.atan2(defender.y - attacker.y, defender.x - attacker.x);
               if (!ranged) {
