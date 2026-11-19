@@ -404,6 +404,26 @@ drawn procedurally rather than adding sprites.
   stats unchanged.
 - Committed on the feature branch (rides PR #1 with the rest of the batch).
 
+## 27. Free-for-all battle randomness (2026-11-18, owner request)
+- Owner wanted "more randomness" in the (already free-for-all) royale. Added a single
+  **CHAOS** knob (0..1) to simRoyale targeting: CHAOS chance a strike hits a RANDOM living
+  enemy instead of focus-firing the weakest. Default **0.25**.
+- **Measured tradeoff (important):** strong targeting-randomness sharply lowers a solo
+  player's win rate in a 1-of-4 free-for-all — pure/strong random crashed it to ~6%,
+  because scatter dilutes the player's focus-fire edge while 3 rivals' combined fire still
+  erodes them. Isolated the variable (baseline ~22% at 80g). Landed CHAOS=0.25 + START_GOLD
+  80 → optimal play ~27% (fair) with visibly chaotic battles. Higher CHAOS is a valid
+  "harder/wilder" setting — left as a one-number dial for the owner.
+- All gating suites green; dominant-squad royale check still holds.
+
+## 28. NOT DONE YET — per-unit hitbox + range (owner request, queued)
+- Owner also asked that "each character have its own hitbox and range." This is a real
+  positional-combat rewrite: units need field positions, must MOVE to close distance,
+  strikes gate on range (melee short, Archer/Mage long), and the animation must read
+  positions FROM the sim (today the animation lays out positions itself). Balance would
+  need full re-measurement. Deliberately NOT rushed into this turn — flagged to the owner
+  as the focused next step so it's done properly, not half-built.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

@@ -333,7 +333,8 @@
   let round = 1;
   const MAX_ROUNDS = 3;
   const UNITS_PER_ROUND = 8;    // kept at 8 — enough for synergies with 4 buyers, without dragging the timed auction
-  const START_GOLD = 75;        // retuned after synergies were made STACKING (which raised the player's ceiling); lands optimal play back near ~30%.
+  const START_GOLD = 80;        // nudged up from 75 to offset the free-for-all CHAOS below.
+  const CHAOS = 0.25;           // free-for-all target randomness: 0 = focus weakest, 1 = fully random. 0.25 = visibly chaotic, strong squads still favoured.
   let auctionQueue = [];
   let roundLineup = [];     // full snapshot of this round's units (for the preview strip)
   let lineupPos = 0;        // index of the unit currently/last on the block
@@ -1067,16 +1068,28 @@
     log.push({ cls:"head", text: `Battle royale: ${squads.map(s=>`${s.name} (${sqAlive(s)}u)`).join(" vs ")}` });
 
     // pick the weakest living enemy unit across all OTHER squads
+    // Free-for-all targeting with real randomness: gather every living enemy
+    // unit across ALL other squads, then pick with a WEIGHTED random bias toward
+    // weaker targets. So focus-fire is a tendency, not a rule — the brawl
+    // genuinely scatters, which is the chaos a free-for-all should have.
     function pickTarget(attackerSquad) {
-      let best = null;
+      const cands = [];
       for (const s of squads) {
         if (s === attackerSquad || sqAlive(s) === 0) continue;
         for (let ui = 0; ui < s.units.length; ui++) {
-          const u = s.units[ui];
-          if (u.hp <= 0) continue;
-          if (!best || u.hp < best.u.hp || (Math.random() < 0.12)) best = { s, ui, u };
+          if (s.units[ui].hp > 0) cands.push({ s, ui, u: s.units[ui] });
         }
       }
+      if (!cands.length) return null;
+      // Free-for-all randomness, tunable via ONE knob (CHAOS 0..1): 0 = always
+      // focus the weakest (deterministic), 1 = pure random target. The default
+      // is a light-moderate value — the brawl visibly scatters while a strong
+      // squad is still clearly favoured. (Measured tradeoff: higher CHAOS lowers
+      // a solo player's win rate sharply in a 1-of-4 free-for-all — see
+      // DECISIONS §27. Exposed here so it's a one-number dial.)
+      if (Math.random() < CHAOS) return cands[Math.floor(Math.random() * cands.length)];
+      let best = null;
+      for (const c of cands) { if (!best || c.u.hp < best.u.hp || Math.random() < 0.12) best = c; }
       return best;
     }
 
