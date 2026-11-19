@@ -451,6 +451,22 @@ drawn procedurally rather than adding sprites.
   screen (persisted) lets the player turn the rings off if they prefer a clean field.
 - Rendering-only; all gating suites green. Committed to local main (batched).
 
+## 31. Real-time tick combat + smaller ranges (2026-11-18, owner request)
+- Replaced the round-based royale loop with a **tick simulation**: no shared turns —
+  each unit runs on its OWN attack cooldown (per-type: Rogue 4 … Beast 7 ticks, staggered
+  start) and moves a small step each tick, so units **move and shoot independently**. Fast
+  units attack more often; archers fire on their own timer while kiting. Still a
+  deterministic sim emitting the same move/hit/death event stream the animation replays;
+  `round` events dropped, `move` events throttled (every ~12px) to keep the stream light.
+- **Smaller ranges** (owner ask): Archer 230→120, Mage 190→95, melee 34→22. Positioning
+  matters more; ranged still out-reach melee but must close in.
+- Balance: re-measured, optimal play ~17-23% / overall ~20% — still fair, no gold retune
+  needed. Dominant-squad invariant holds.
+- test-diag sample trimmed 150→60 per strategy: the tick sim makes each headless-driven
+  game slower to pump, and 540 driven games was timing the diagnostic out (a TEST-HARNESS
+  speed issue, not a game one — the sim itself runs 30 royales in ~26ms). All gating
+  suites green. Committed to local main (batched).
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

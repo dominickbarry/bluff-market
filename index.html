@@ -884,9 +884,10 @@
     const archerShots = archN >= 1 ? synergyEffect("Archer", archN) : 1;  // shots per archer
     return p.squad.map(u => {
       const maxHp = Math.max(1, Math.round(u.hp * hpMul));
-      // attack range (px, arena space): melee short, Archer/Mage reach far.
-      const range = (u.type === "Archer") ? 230 : (u.type === "Mage") ? 190 : 34;
-      const speed = (u.type === "Rogue") ? 46 : (u.type === "Beast") ? 30 : 36; // px/round closing speed
+      // attack range (px, arena space) — SMALLER now so positioning matters:
+      // ranged units still out-reach melee, but must get closer than before.
+      const range = (u.type === "Archer") ? 120 : (u.type === "Mage") ? 95 : 22;
+      const speed = (u.type === "Rogue") ? 46 : (u.type === "Beast") ? 30 : 36;
       return {
         type: u.type, tier: u.tier,
         hp: maxHp, maxHp,
@@ -1164,34 +1165,49 @@
     }));
     checkElims();
 
-    // melee rounds: every living unit targets its NEAREST enemy, MOVES toward it
-    // if out of range, and STRIKES when within range. First-strikers act first.
-    // Round cap raised since units may spend rounds closing distance.
-    let round = 0;
-    while (livingSquads().length > 1 && round < 600) {
-      round++;
-      ev({ kind:"round", n: round });
+    // REAL-TIME-ish TICK SIM: no shared turns. Every unit runs on its OWN
+    // attack cooldown and moves a little each tick, so units move and shoot
+    // independently — a fast Rogue strikes more often, an Archer fires on its
+    // own timer while kiting. Deterministic sim; emits the same move/hit event
+    // stream the animation replays. `move` events are throttled so the stream
+    // stays light.
+    // per-type attack cooldown in ticks (lower = attacks more often)
+    const COOLDOWN = { Rogue: 4, Archer: 5, Mage: 6, Warrior: 6, Beast: 7 };
+    squads.forEach(s => s.units.forEach(u => {
+      u.cd = (u.firstStrike ? 1 : 2) + Math.floor(Math.random()*3);  // staggered start so they don't all fire in sync
+      u.moveAccum = 0;
+    }));
+    const TICK_MOVE = 7;            // px a unit closes per tick when out of range
+    let tick = 0;
+    while (livingSquads().length > 1 && tick < 4000) {
+      tick++;
+      // units act in a shuffled order each tick so there's no fixed priority
       const actors = [];
-      squads.forEach(s => { if (sqAlive(s)) s.units.forEach((u,ui) => { if (u.hp>0) actors.push({ s, u, ui, fs: u.firstStrike }); }); });
+      squads.forEach(s => { if (sqAlive(s)) s.units.forEach((u,ui) => { if (u.hp>0) actors.push({ s, u, ui }); }); });
       for (let i=actors.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [actors[i],actors[j]]=[actors[j],actors[i]]; }
-      actors.sort((x,y)=> (y.fs?1:0)-(x.fs?1:0));
       for (const act of actors) {
-        if (act.u.hp <= 0) continue;
-        if (livingSquads().length <= 1) break;
         const u = act.u;
+        if (u.hp <= 0) continue;
+        if (livingSquads().length <= 1) break;
         const tgt = pickTarget(act.s, u);
         if (!tgt) continue;
         const d = dist(u.fx, u.fy, tgt.u.fx, tgt.u.fy);
         if (d <= u.range) {
-          strike(act.s, u, act.ui, false, tgt);     // in range: attack this target
-          checkElims();
+          // in range: attack when this unit's own cooldown is ready
+          if (u.cd <= 0) {
+            strike(act.s, u, act.ui, false, tgt);
+            u.cd = COOLDOWN[u.type] || 6;
+            checkElims();
+          }
         } else {
-          // out of range: step toward the target (capped by speed), emit move
-          const step = Math.min(u.speed, d - u.range + 2);
+          // out of range: close distance a small step; throttle move events
+          const step = Math.min(TICK_MOVE, d - u.range + 1);
           u.fx += (tgt.u.fx - u.fx) / d * step;
           u.fy += (tgt.u.fy - u.fy) / d * step;
-          ev({ kind:"move", pi: act.s.pi, ui: act.ui, fx: u.fx, fy: u.fy });
+          u.moveAccum += step;
+          if (u.moveAccum >= 12) { u.moveAccum = 0; ev({ kind:"move", pi: act.s.pi, ui: act.ui, fx: u.fx, fy: u.fy }); }
         }
+        if (u.cd > 0) u.cd--;
       }
     }
 
