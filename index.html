@@ -333,7 +333,7 @@
   let round = 1;
   const MAX_ROUNDS = 3;
   const UNITS_PER_ROUND = 8;    // kept at 8 — enough for synergies with 4 buyers, without dragging the timed auction
-  const START_GOLD = 140;       // raised from 120: smaller ranges + more movement added variance that dropped the solo win rate; +20g restores the fair band.
+  const START_GOLD = 130;       // kiting (ranged units keep spacing + fire while retreating) lifted the solo win rate to ~38%; trimming gold ~10 pulls it back to the ~27-28% mid of the fair 25-30% band.
   const CHAOS = 0.12;           // free-for-all target randomness (0=nearest,1=random). Lowered from 0.25: positional range+movement now adds its own variance, so less explicit RNG is needed and strong squads stay favoured.
   let auctionQueue = [];
   let roundLineup = [];     // full snapshot of this round's units (for the preview strip)
@@ -884,10 +884,10 @@
     const archerShots = archN >= 1 ? synergyEffect("Archer", archN) : 1;  // shots per archer
     return p.squad.map(u => {
       const maxHp = Math.max(1, Math.round(u.hp * hpMul));
-      // attack range (px, arena space) — SMALL so units must close in and the
-      // field stays busy: ranged still out-reach melee, but only just.
-      const range = (u.type === "Archer") ? 85 : (u.type === "Mage") ? 65 : 16;
-      const speed = (u.type === "Rogue") ? 46 : (u.type === "Beast") ? 30 : 36;
+      // attack range (px, arena space) — TIGHT so units chase and the field
+      // stays in motion; ranged keep a kite distance (see simRoyale).
+      const range = (u.type === "Archer") ? 55 : (u.type === "Mage") ? 42 : 12;
+      const speed = (u.type === "Rogue") ? 52 : (u.type === "Beast") ? 34 : 42;  // a bit faster overall → more visible movement
       return {
         type: u.type, tier: u.tier,
         hp: maxHp, maxHp,
@@ -940,7 +940,7 @@
     return { cx, cy, rx, ry,
       squadCentre(slot) {
         const ang = Math.PI/2 + (slot / nSquads) * Math.PI * 2;   // slot 0 = bottom
-        return { x: cx + Math.cos(ang)*rx*0.82, y: cy + Math.sin(ang)*ry*0.82, ang };
+        return { x: cx + Math.cos(ang)*rx*0.95, y: cy + Math.sin(ang)*ry*0.95, ang };  // spawn near the edge → longer approach, more movement
       }
     };
   }
@@ -1207,8 +1207,25 @@
         if (livingSquads().length <= 1) break;
         const tgt = pickTarget(act.s, u);
         if (!tgt) continue;
-        const d = dist(u.fx, u.fy, tgt.u.fx, tgt.u.fy);
-        if (d <= u.range) {
+        const d = dist(u.fx, u.fy, tgt.u.fx, tgt.u.fy) || 0.001;
+        const ranged = (u.type === "Archer" || u.type === "Mage");
+        // ranged units keep spacing: if an enemy crowds inside this distance
+        // they back off while still shooting, so the field keeps moving and
+        // archers/mages don't just stand on top of melee.
+        const kiteDist = ranged ? u.range * 0.6 : 0;
+        let moved = false;
+        if (ranged && d < kiteDist) {
+          // enemy too close: step AWAY from it (kite) at the unit's own speed,
+          // then still attack this tick if the cooldown is ready.
+          const step = Math.min(u.speed * MOVE_SCALE, kiteDist - d);
+          const nx = u.fx + (u.fx - tgt.u.fx) / d * step;
+          const ny = u.fy + (u.fy - tgt.u.fy) / d * step;
+          // stay inside the arena so kiters don't walk off the floor
+          u.fx = clamp(nx, ARENA_W*0.06, ARENA_W*0.94);
+          u.fy = clamp(ny, ARENA_H*0.10, ARENA_H*0.92);
+          moved = true;
+          if (u.cd <= 0) { strike(act.s, u, act.ui, false, tgt); u.cd = COOLDOWN[u.type] || 6; checkElims(); }
+        } else if (d <= u.range) {
           // in range: attack when this unit's own cooldown is ready
           if (u.cd <= 0) {
             strike(act.s, u, act.ui, false, tgt);
@@ -1222,7 +1239,10 @@
           const step = Math.min(u.speed * MOVE_SCALE, d - u.range + 1);
           u.fx += (tgt.u.fx - u.fx) / d * step;
           u.fy += (tgt.u.fy - u.fy) / d * step;
-          u.moveAccum += step;
+          moved = true;
+        }
+        if (moved) {
+          u.moveAccum += u.speed * MOVE_SCALE;
           if (u.moveAccum >= 10) { u.moveAccum = 0; ev({ kind:"move", pi: act.s.pi, ui: act.ui, fx: u.fx, fy: u.fy }); }
         }
         if (u.cd > 0) u.cd--;

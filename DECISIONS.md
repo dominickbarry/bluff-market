@@ -526,6 +526,20 @@ drawn procedurally rather than adding sprites.
   are pure scenery + boundary — no balance change. Verified all 5 appear with valid
   shapes; all gating suites green. Committed to local main (now 6 commits ahead of live).
 
+## 37. Smaller ranges + kiting (2026-11-18, owner: "range still too big, want more movement")
+- **Ranges tightened again:** Archer 85→55, Mage 65→42, melee 16→12 (arena px). Units
+  now have to close most of the field before they can engage, so the fight stays in motion.
+- **Speeds raised** so the chase reads as lively: Rogue 52, Beast 34, others 42; spawn ring
+  pushed out to 0.95 of the arena radius for a longer approach.
+- **Kiting added** (`simRoyale` tick loop): Archers and Mages that get crowded inside 60%
+  of their range step *away* from the nearest enemy while still firing on their own cooldown,
+  clamped to stay on the floor. Melee is unchanged (close + attack). This is why movement
+  reads as individual and purposeful rather than everyone collapsing onto one point.
+- **Balance:** kiting let ranged units live longer, lifting the solo win rate to ~38%.
+  Pulled back with `START_GOLD` 140→130 (the ~+10g≈+7pt lever, in reverse). Measured over
+  6×60 diag runs the player sits ~29%, inside the fair 25-30% band.
+- All gating suites green, including the >70% dominant-squad-wins invariant.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,
