@@ -513,6 +513,19 @@ drawn procedurally rather than adding sprites.
   distinct — this makes the attacks LOOK different too. All gating suites green. Committed
   to local main (now 5 commits ahead of live).
 
+## 36. Battle maps (2026-11-18, owner: circle/square/few maps)
+- Added **5 battle maps**, one picked at random per royale: Dust Arena (ellipse),
+  Stone Keep (square/rect), Blood Pit (circle), Frost Field (ellipse, icy palette),
+  Verdant Ring (circle, green). Each sets the floor SHAPE, a radius scale, and a colour
+  palette (floor gradient, border, grid). Map name shown in the battle header.
+- Defined as a data table (`MAPS`) so more are trivial to add. The map is chosen in
+  `simRoyale` (so the spawn ring uses its radius scale) and emitted in the `start` event;
+  the animation reads `start.map` and `drawBackdrop` draws the shape+palette via a
+  `floorPath()` helper (ellipse/rect/circle).
+- Combat UNAFFECTED: squads always spawn on a ring that fits inside every shape, so maps
+  are pure scenery + boundary — no balance change. Verified all 5 appear with valid
+  shapes; all gating suites green. Committed to local main (now 6 commits ahead of live).
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

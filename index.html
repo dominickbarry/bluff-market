@@ -921,8 +921,22 @@
   // unit positions) and the animation (rendering), so they always agree. Squads
   // start clustered on a ring facing the centre; the sim then moves units.
   const ARENA_W = 640, ARENA_H = 300;
+  // A few battle maps: each sets the floor SHAPE ("ellipse" | "rect" | "circle"),
+  // a radius scale, and a palette. Combat is unaffected — squads always spawn on
+  // a ring that fits inside every shape — so a map is purely scenery + boundary.
+  const MAPS = [
+    { name: "Dust Arena",  shape: "ellipse", rscale: 1.00, floor:["#6a5a3e","#54472f","#3a3022"], border:"#8a6f3a", grid:"rgba(0,0,0,.14)" },
+    { name: "Stone Keep",  shape: "rect",    rscale: 0.98, floor:["#5f6472","#474c59","#30343d"], border:"#8f98ad", grid:"rgba(0,0,0,.16)" },
+    { name: "Blood Pit",   shape: "circle",  rscale: 0.92, floor:["#6b4138","#512f29","#36201c"], border:"#a65a4a", grid:"rgba(0,0,0,.18)" },
+    { name: "Frost Field", shape: "ellipse", rscale: 1.00, floor:["#5b7488","#44596b","#2e3d4a"], border:"#9fc6e0", grid:"rgba(255,255,255,.08)" },
+    { name: "Verdant Ring",shape: "circle",  rscale: 0.95, floor:["#4f6a3e","#3c512f","#283621"], border:"#7fae55", grid:"rgba(0,0,0,.15)" },
+  ];
+  let currentMap = MAPS[0];
+  function pickMap() { currentMap = pick(MAPS); return currentMap; }
+
   function arenaLayout(nSquads) {
-    const cx = ARENA_W/2, cy = ARENA_H/2 + 8, rx = ARENA_W*0.40, ry = ARENA_H*0.38;
+    const rs = (currentMap && currentMap.rscale) || 1;
+    const cx = ARENA_W/2, cy = ARENA_H/2 + 8, rx = ARENA_W*0.40*rs, ry = ARENA_H*0.38*rs;
     return { cx, cy, rx, ry,
       squadCentre(slot) {
         const ang = Math.PI/2 + (slot / nSquads) * Math.PI * 2;   // slot 0 = bottom
@@ -1072,6 +1086,7 @@
   // Events are keyed by player index (pi/ui for attacker, tpi/tui for target).
   function simRoyale(playerList, log, events) {
     const ev = (e) => { if (events) events.push(e); };
+    pickMap();   // choose this battle's map (sets arena radius scale + scenery)
     // build each squad's combat units
     const squads = playerList.map((p, pi) => {
       let units = buildUnits(p);
@@ -1093,7 +1108,7 @@
       });
     });
 
-    ev({ kind: "start", squads: squads.map(s => ({
+    ev({ kind: "start", map: currentMap, squads: squads.map(s => ({
       pi: s.pi, name: s.name, you: s.you,
       units: s.units.map(u => ({ type:u.type, tier:u.tier, hp:u.hp, maxHp:u.maxHp, fx:u.fx, fy:u.fy, range:u.range }))
     })) });
@@ -1504,7 +1519,9 @@
     // future 3D renderer can reuse the whole layout + sim and only swap the
     // projection: fieldToScreen() is the ONE seam to change for 3D (replace the
     // identity mapping with a perspective/iso projection).
-    const ARENA = { cx: W/2, cy: H/2 + 8, rx: W*0.40, ry: H*0.38 };  // elliptical floor
+    const MAP = start.map || { shape:"ellipse", rscale:1, floor:["#6a5a3e","#54472f","#3a3022"], border:"#8a6f3a", grid:"rgba(0,0,0,.14)" };
+    const rs = MAP.rscale || 1;
+    const ARENA = { cx: W/2, cy: H/2 + 8, rx: W*0.40*rs, ry: H*0.38*rs, shape: MAP.shape };  // floor region
     function fieldToScreen(fx, fy) { return { x: fx, y: fy }; }       // 3D SEAM: identity today
 
     // Units now carry AUTHORITATIVE positions from the sim (start.fx/fy) and the
@@ -1547,7 +1564,8 @@
     const vs = $("vsLine");
     if (vs) vs.innerHTML = start.squads.map(sq =>
       `<span style="color:${SLOT_COLORS[sq.pi%SLOT_COLORS.length].col}">${sq.you?'YOU':sq.name}</span>`
-    ).join(' &nbsp;·&nbsp; ');
+    ).join(' &nbsp;·&nbsp; ')
+      + (MAP.name ? ` <span style="opacity:.55;font-size:12px">— ${MAP.name}</span>` : "");
 
     let idx = 1;                 // next event to apply (0 is "start")
     let eventTimer = 0;
@@ -1737,17 +1755,29 @@
     // mark and faint grid. (3D SEAM: a future renderer would draw a projected
     // ground plane here instead; the fighters/sim above stay unchanged.)
     function drawBackdrop() {
+      // trace the floor outline for the current map shape (inset `pad` px)
+      function floorPath(pad) {
+        pad = pad || 0;
+        ctx.beginPath();
+        if (ARENA.shape === "rect") {
+          ctx.rect(ARENA.cx - (ARENA.rx-pad), ARENA.cy - (ARENA.ry-pad), (ARENA.rx-pad)*2, (ARENA.ry-pad)*2);
+        } else if (ARENA.shape === "circle") {
+          const r = Math.min(ARENA.rx, ARENA.ry*1.6) - pad;   // a rounder pit
+          ctx.ellipse(ARENA.cx, ARENA.cy, r, Math.min(r, ARENA.ry-pad), 0, 0, Math.PI*2);
+        } else {
+          ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx-pad, ARENA.ry-pad, 0, 0, Math.PI*2);
+        }
+      }
       // backing fill
       ctx.fillStyle = "#0e1526"; ctx.fillRect(0,0,W,H);
-      // arena floor (radial so the centre reads as lit)
+      // arena floor (radial so the centre reads as lit), coloured by the map
       const fl = ctx.createRadialGradient(ARENA.cx, ARENA.cy, 20, ARENA.cx, ARENA.cy, ARENA.rx);
-      fl.addColorStop(0, "#6a5a3e"); fl.addColorStop(0.7, "#54472f"); fl.addColorStop(1, "#3a3022");
+      fl.addColorStop(0, MAP.floor[0]); fl.addColorStop(0.7, MAP.floor[1]); fl.addColorStop(1, MAP.floor[2]);
       ctx.save();
-      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx, ARENA.ry, 0, 0, Math.PI*2);
-      ctx.fillStyle = fl; ctx.fill();
-      ctx.clip();
+      floorPath(0); ctx.fillStyle = fl; ctx.fill();
+      floorPath(0); ctx.clip();
       // faint grid lines for a sense of ground
-      ctx.strokeStyle = "rgba(0,0,0,.14)"; ctx.lineWidth = 1;
+      ctx.strokeStyle = MAP.grid; ctx.lineWidth = 1;
       for (let gx = -ARENA.rx; gx <= ARENA.rx; gx += 44) {
         ctx.beginPath(); ctx.moveTo(ARENA.cx+gx, ARENA.cy-ARENA.ry); ctx.lineTo(ARENA.cx+gx, ARENA.cy+ARENA.ry); ctx.stroke();
       }
@@ -1755,14 +1785,12 @@
         ctx.beginPath(); ctx.moveTo(ARENA.cx-ARENA.rx, ARENA.cy+gy); ctx.lineTo(ARENA.cx+ARENA.rx, ARENA.cy+gy); ctx.stroke();
       }
       // centre mark
-      ctx.strokeStyle = "rgba(255,210,150,.18)"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, 30, 28, 0, 0, Math.PI*2); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,230,190,.18)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, 30, 26, 0, 0, Math.PI*2); ctx.stroke();
       ctx.restore();
-      // border ring
-      ctx.strokeStyle = "#8a6f3a"; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx, ARENA.ry, 0, 0, Math.PI*2); ctx.stroke();
-      ctx.strokeStyle = "rgba(255,230,180,.25)"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx-3, ARENA.ry-3, 0, 0, Math.PI*2); ctx.stroke();
+      // border, coloured by the map (double line for a crafted edge)
+      ctx.strokeStyle = MAP.border; ctx.lineWidth = 4; floorPath(0); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,.22)"; ctx.lineWidth = 1; floorPath(3); ctx.stroke();
     }
 
     function drawVignette() {
