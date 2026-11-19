@@ -194,6 +194,7 @@
   .diff-btn:active { transform: translateY(1px); }
   .diff-btn.sel { background: linear-gradient(#ffd479,#e6a021); color: #2a1600; border-color: #a86e00; font-weight: 900; }
   .diff-blurb { font-size: 11px; opacity: .6; font-style: italic; min-width: 150px; text-align: left; }
+  .quick { font-size: 13px; padding: 7px 16px; opacity: .85; }
   .stats-line { font-size: 12px; opacity: .85; margin-top: 10px; color: #cdd8ee; }
   .stats-line b { color: #ffd479; }
   .record-note { font-size: 13px; margin: 2px auto 4px; color: #7dff9b; font-weight: bold; min-height: 18px; }
@@ -237,6 +238,7 @@
         <button id="btnHowTo" type="button" class="alt">HOW TO PLAY</button>
         <button id="btnMute" type="button" class="alt" title="Toggle sound">🔊 SOUND</button>
       </div>
+      <button id="btnQuick" type="button" class="alt quick" title="Skip the auction — watch a battle with random squads">⚡ QUICK BATTLE (test)</button>
       <div class="hint">Tip: rivals can see what you <i>won</i> and what you <i>paid</i> &mdash; but never how much gold you have left. Use that.</div>
       <div class="stats-line" id="statsLine"></div>
     </div>
@@ -327,6 +329,7 @@
 
   // ---------- state ----------
   let players = [];      // {id,name,you,gold,squad:[],wins,points,persona}
+  let testMode = false;  // true during a QUICK BATTLE test run (stats not recorded)
   let round = 1;
   const MAX_ROUNDS = 3;
   const UNITS_PER_ROUND = 8;    // kept at 8 — enough for synergies with 4 buyers, without dragging the timed auction
@@ -434,6 +437,7 @@
 
   // ---------- setup ----------
   function newGame() {
+    testMode = false;
     const d = diff();
     const youGold = Math.round(START_GOLD * d.youGold);
     const shuffledNames = [...NAMES].sort(() => Math.random() - 0.5);
@@ -488,6 +492,30 @@
     $("scrGame").classList.remove("hidden");
     $("roundTag").textContent = `ROUND ${round} / ${MAX_ROUNDS}`;
     nextAuction();
+  }
+
+  // TEST SHORTCUT: skip the auction entirely and jump straight to a battle
+  // royale with randomly-filled squads, so the fighting can be watched without
+  // bidding through three rounds. Uses the real battle path, so what's shown is
+  // genuine. Each squad gets 3–6 random units (free).
+  function quickBattle() {
+    testMode = true;
+    const shuffledNames = [...NAMES].sort(() => Math.random() - 0.5);
+    players = [{ id: 0, name: "You", you: true, gold: 0, squad: [], wins: 0, points: 0, persona: null }];
+    const personaPool = [...PERSONAS].sort(() => Math.random() - 0.5);
+    for (let i = 1; i <= 3; i++) {
+      players.push({ id: i, name: shuffledNames[i - 1], you: false, gold: 0, squad: [], wins: 0, points: 0,
+        persona: personaPool[(i - 1) % personaPool.length], apparentGold: 0 });
+    }
+    players.forEach(p => { const n = randi(3, 6); for (let k = 0; k < n; k++) p.squad.push(makeUnit()); });
+    // make it a ONE-OFF: set the last round so the post-battle button is
+    // "SEE FINAL RESULT" (ends cleanly) rather than dropping into a real auction.
+    round = MAX_ROUNDS;
+    $("scrIntro").classList.add("hidden");
+    $("scrEnd").classList.add("hidden");
+    $("scrGame").classList.remove("hidden");
+    $("roundTag").textContent = `TEST BATTLE`;
+    startBattles();   // straight to the royale, skipping the auction
   }
 
   // ---------- players strip ----------
@@ -1741,8 +1769,9 @@
     const champ = sorted[0];
     const you = players[0];
     const youPlace = sorted.findIndex(p => p.you) + 1;
-    // record into the persistent lifetime stats, before building the screen
-    const flags = recordResult(youPlace, players.length);
+    // record into the persistent lifetime stats, before building the screen —
+    // but a QUICK-BATTLE test run must NOT pollute the real record.
+    const flags = testMode ? { newBestStreak:false, newBestPlace:false } : recordResult(youPlace, players.length);
     if (champ.you) SND.win(); else SND.lose();
     $("endTitle").textContent = champ.you ? "YOU WIN!" : `${champ.name.toUpperCase()} WINS`;
     $("endSub").innerHTML = champ.you
@@ -1769,7 +1798,9 @@
         <div class="recap-row"><span>Synergies</span><span>${syn.length ? syn.map(s=>s.text).join(" · ") : "none"}</span></div>
         <div class="recap-row"><span>Points / gold left</span><span>${you.points} pts · ${you.gold}g</span></div>
       </div>`;
-    const lifetime = `<div class="stats-line" style="text-align:center;margin-top:10px">${statsLine()}</div>`;
+    const lifetime = testMode
+      ? `<div class="stats-line" style="text-align:center;margin-top:10px;opacity:.7">⚡ Test battle — not counted in your record.</div>`
+      : `<div class="stats-line" style="text-align:center;margin-top:10px">${statsLine()}</div>`;
     $("endStandings").innerHTML = recap + renderStandings() + lifetime;
     // keep the intro's stats line fresh for when the user returns there
     const sl = $("statsLine"); if (sl) sl.innerHTML = statsLine();
@@ -1844,6 +1875,7 @@
   const gesture = () => { SND.init(); SND.resume(); };
   $("btnStart").addEventListener("click", () => { gesture(); newGame(); });
   $("btnReplay").addEventListener("click", () => { gesture(); newGame(); });
+  $("btnQuick").addEventListener("click", () => { gesture(); quickBattle(); });
   $("btnHowTo").addEventListener("click", () => { gesture(); showHowTo(); });
   $("btnHowToBack").addEventListener("click", () => { hideHowTo(); renderStatsLine(); });
   $("btnMute").addEventListener("click", () => { SND.init(); SND.setMuted(!SND.muted); SND.resume(); renderMuteBtn(); if (!SND.muted) SND.bid(); });

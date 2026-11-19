@@ -394,6 +394,16 @@ drawn procedurally rather than adding sprites.
   difficulty, legendary, kill-feed); this top-down commit stacks on top and will need to
   ride that PR's branch or a follow-up — see the deploy note to the user.
 
+## 26. Quick-battle test shortcut (2026-11-18)
+- Added a **⚡ QUICK BATTLE (test)** button on the intro: skips the auction and drops
+  straight into a battle royale with random free squads (3–6 units each), so the fighting
+  can be watched without bidding. Uses the real battle path, set to the final round so it
+  ends cleanly on "SEE FINAL RESULT".
+- A `testMode` flag means quick-battle results do NOT pollute the lifetime stats (end
+  screen shows "Test battle — not counted"). Verified headlessly: reaches a result,
+  stats unchanged.
+- Committed on the feature branch (rides PR #1 with the rest of the batch).
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,
