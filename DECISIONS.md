@@ -467,6 +467,17 @@ drawn procedurally rather than adding sprites.
   speed issue, not a game one — the sim itself runs 30 royales in ~26ms). All gating
   suites green. Committed to local main (batched).
 
+## 32. Even smaller ranges + more movement (2026-11-18, owner request)
+- Ranges cut again: Archer 120→85, Mage 95→65, melee 22→16. Units now fight almost on
+  top of each other; ranged barely out-reaches melee.
+- More movement: the per-tick closing step now scales off each unit's own `speed`
+  (MOVE_SCALE 0.32) instead of a flat 7px, so units cross the field faster AND with
+  per-type character (Rogues dart, Beasts lumber). Move-event throttle tightened to 10px
+  so the brisker movement still streams smoothly.
+- Balance: the extra variance dropped optimal play to ~12%; nudged START_GOLD 120→140 →
+  optimal ~35% / balanced ~25% (fair, gentle gradient that suits "easy to learn").
+  Dominant-squad invariant still holds. All gating suites green. Committed to local main.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

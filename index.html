@@ -333,7 +333,7 @@
   let round = 1;
   const MAX_ROUNDS = 3;
   const UNITS_PER_ROUND = 8;    // kept at 8 — enough for synergies with 4 buyers, without dragging the timed auction
-  const START_GOLD = 120;       // raised from 80: positional combat (ranged kiting + movement + nearest-target) diluted the solo player's edge; sweep showed ~120g restores Normal to ~30%.
+  const START_GOLD = 140;       // raised from 120: smaller ranges + more movement added variance that dropped the solo win rate; +20g restores the fair band.
   const CHAOS = 0.12;           // free-for-all target randomness (0=nearest,1=random). Lowered from 0.25: positional range+movement now adds its own variance, so less explicit RNG is needed and strong squads stay favoured.
   let auctionQueue = [];
   let roundLineup = [];     // full snapshot of this round's units (for the preview strip)
@@ -884,9 +884,9 @@
     const archerShots = archN >= 1 ? synergyEffect("Archer", archN) : 1;  // shots per archer
     return p.squad.map(u => {
       const maxHp = Math.max(1, Math.round(u.hp * hpMul));
-      // attack range (px, arena space) — SMALLER now so positioning matters:
-      // ranged units still out-reach melee, but must get closer than before.
-      const range = (u.type === "Archer") ? 120 : (u.type === "Mage") ? 95 : 22;
+      // attack range (px, arena space) — SMALL so units must close in and the
+      // field stays busy: ranged still out-reach melee, but only just.
+      const range = (u.type === "Archer") ? 85 : (u.type === "Mage") ? 65 : 16;
       const speed = (u.type === "Rogue") ? 46 : (u.type === "Beast") ? 30 : 36;
       return {
         type: u.type, tier: u.tier,
@@ -1177,7 +1177,7 @@
       u.cd = (u.firstStrike ? 1 : 2) + Math.floor(Math.random()*3);  // staggered start so they don't all fire in sync
       u.moveAccum = 0;
     }));
-    const TICK_MOVE = 7;            // px a unit closes per tick when out of range
+    const MOVE_SCALE = 0.32;        // per-tick fraction of a unit's `speed` (more movement than before)
     let tick = 0;
     while (livingSquads().length > 1 && tick < 4000) {
       tick++;
@@ -1200,12 +1200,14 @@
             checkElims();
           }
         } else {
-          // out of range: close distance a small step; throttle move events
-          const step = Math.min(TICK_MOVE, d - u.range + 1);
+          // out of range: close distance each tick at the unit's own speed
+          // (Rogues dart, Beasts lumber). Throttle move events so the stream
+          // stays light but movement still reads as near-continuous.
+          const step = Math.min(u.speed * MOVE_SCALE, d - u.range + 1);
           u.fx += (tgt.u.fx - u.fx) / d * step;
           u.fy += (tgt.u.fy - u.fy) / d * step;
           u.moveAccum += step;
-          if (u.moveAccum >= 12) { u.moveAccum = 0; ev({ kind:"move", pi: act.s.pi, ui: act.ui, fx: u.fx, fy: u.fy }); }
+          if (u.moveAccum >= 10) { u.moveAccum = 0; ev({ kind:"move", pi: act.s.pi, ui: act.ui, fx: u.fx, fy: u.fy }); }
         }
         if (u.cd > 0) u.cd--;
       }
