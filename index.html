@@ -1094,7 +1094,7 @@
 
     ev({ kind: "start", squads: squads.map(s => ({
       pi: s.pi, name: s.name, you: s.you,
-      units: s.units.map(u => ({ type:u.type, tier:u.tier, hp:u.hp, maxHp:u.maxHp, fx:u.fx, fy:u.fy }))
+      units: s.units.map(u => ({ type:u.type, tier:u.tier, hp:u.hp, maxHp:u.maxHp, fx:u.fx, fy:u.fy, range:u.range }))
     })) });
     log.push({ cls:"head", text: `Battle royale: ${squads.map(s=>`${s.name} (${sqAlive(s)}u)`).join(" vs ")}` });
 
@@ -1233,14 +1233,22 @@
       <div class="battle-subtitle" id="battleSub"></div>
       <div class="footer-btns">
         <button id="btnSkip" type="button" class="alt">SKIP ANIMATION</button>
+        <button id="btnRanges" type="button" class="alt"></button>
       </div>
     `;
     $("btnSkip").addEventListener("click", () => { animState.skip = true; });
+    const rb = $("btnRanges");
+    const setRangesLabel = () => { rb.textContent = showRanges ? "◎ RANGES: ON" : "◎ RANGES: OFF"; };
+    setRangesLabel();
+    rb.addEventListener("click", () => { showRanges = !showRanges; try { localStorage.setItem("bluffMarket.ranges", showRanges ? "1" : "0"); } catch (e) {} setRangesLabel(); });
     animateRoyale(royale);
   }
 
   // ----- canvas fight animation -----
   const animState = { raf: 0, skip: false };
+  // whether to draw unit range rings in battle (persisted; default on)
+  let showRanges = true;
+  try { showRanges = localStorage.getItem("bluffMarket.ranges") !== "0"; } catch (e) {}
 
   // A TOP-DOWN fighter token: a body disc with a shield arc and a weapon that
   // points along `ang` (radians, world space). atk 0..1 lunges the weapon out;
@@ -1462,7 +1470,7 @@
       forms[sq.pi] = sq.units.map((u) => {
         const p = fieldToScreen(u.fx, u.fy);
         return {
-          type: u.type, weapon: u.type,
+          type: u.type, weapon: u.type, range: u.range || 34,
           hp: u.hp, maxHp: u.maxHp, down: u.hp <= 0,
           tx: p.x, ty: p.y,          // sim target position (updated by `move`)
           x: p.x, y: p.y,            // eased live position
@@ -1717,6 +1725,25 @@
       }
       ctx.globalAlpha = 1;
       const tnow = (last||0)/1000;
+      // range rings UNDER the fighters: faint squad-coloured circles showing each
+      // living unit's reach. Ranged units (big radius) get a dashed ring so they
+      // visibly command territory; melee rings are small and very subtle.
+      if (showRanges) {
+        forms.forEach((f, pi) => { if (!f) return;
+          const col = SLOT_COLORS[pi % SLOT_COLORS.length].col;
+          f.forEach(u => {
+            if (u.down) return;
+            const ranged = u.range > 60;
+            ctx.save();
+            ctx.globalAlpha = ranged ? 0.16 : 0.10;
+            ctx.strokeStyle = col; ctx.lineWidth = ranged ? 1.5 : 1;
+            if (ranged && ctx.setLineDash) ctx.setLineDash([5, 5]);
+            ctx.beginPath(); ctx.arc(u.x + u.lx, u.y + u.ly, u.range, 0, Math.PI*2); ctx.stroke();
+            if (ranged) { ctx.globalAlpha = 0.05; ctx.fillStyle = col; ctx.fill(); }
+            ctx.restore();
+          });
+        });
+      }
       // squad name + survivors label (per-unit HP bars are the primary readout now)
       forms.forEach((f, pi) => { if (f) squadLabel(pi); });
       forms.forEach(f => { if (f) drawFormation(f, tnow); });

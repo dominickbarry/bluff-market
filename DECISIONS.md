@@ -441,6 +441,16 @@ drawn procedurally rather than adding sprites.
 - All gating suites green; verified positions/move/hit events via probe. Committed to
   local main (batched for the next deploy).
 
+## 30. Range rings in battle (2026-11-18, owner request)
+- Each living unit's attack range is now drawn as a faint squad-coloured ring under the
+  fighters: ranged units (Archer 230 / Mage 190) get a dashed, lightly-filled ring so
+  they visibly command territory; melee (~34) a small subtle ring. Makes the new
+  positional combat legible — you can see who out-reaches whom.
+- `range` now flows from the sim through the `start` event to the animation (verified by
+  probe: Archer 230 / Mage 190 / Warrior 34). A **◎ RANGES: ON/OFF** toggle on the battle
+  screen (persisted) lets the player turn the rings off if they prefer a clean field.
+- Rendering-only; all gating suites green. Committed to local main (batched).
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,
