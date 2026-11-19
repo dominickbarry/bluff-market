@@ -1163,6 +1163,54 @@
   // ----- canvas fight animation -----
   const animState = { raf: 0, skip: false };
 
+  // A TOP-DOWN fighter token: a body disc with a shield arc and a weapon that
+  // points along `ang` (radians, world space). atk 0..1 lunges the weapon out;
+  // hurt 0..1 flashes white; dead fades + desaturates. Designed to later be a
+  // 3D model billboarded at the same (x,y) — the shapes map to a mesh cleanly.
+  function drawTopFighter(ctx, x, y, o) {
+    const { color, dark, ang, atk, hurt, dead, deadT, weapon } = o;
+    const s = o.scale || 0.64;
+    ctx.save();
+    ctx.translate(x, y);
+    // ground shadow (stays put as the body lifts slightly on attack)
+    ctx.save(); ctx.globalAlpha *= 0.3; ctx.fillStyle = "#000";
+    ctx.beginPath(); ctx.ellipse(0, 0, 16*s, 9*s, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
+    ctx.scale(s, s);
+    ctx.rotate(ang || 0);                 // orient the whole token toward its facing
+    if (dead) ctx.globalAlpha *= (1 - (deadT||0)*0.5);
+
+    const body = hurt > 0.4 ? "#ffffff" : color;
+    // weapon reach (points along +x after rotation), lunges on attack
+    const reach = 14 + (atk||0) * 14;
+    if (weapon === "Archer") {
+      ctx.strokeStyle = "#e8d5a0"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(reach-4, 0, 7, -1.1, 1.1); ctx.stroke();
+    } else if (weapon === "Mage") {
+      const gg = ctx.createRadialGradient(reach, 0, 1, reach, 0, 8);
+      gg.addColorStop(0,"#fff"); gg.addColorStop(1, color);
+      ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(reach, 0, 5, 0, Math.PI*2); ctx.fill();
+    } else {
+      // melee blade/dagger as a line from the body outward
+      ctx.strokeStyle = "#d8dde6"; ctx.lineWidth = weapon === "Rogue" ? 2.5 : 3.5; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(reach, 0); ctx.stroke();
+    }
+    // shield arc on the left flank (opposite the weapon)
+    ctx.strokeStyle = lighten(color, 0.3); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, 11, Math.PI*0.6, Math.PI*1.4); ctx.stroke();
+    // body disc with a rim
+    const bg = ctx.createRadialGradient(-3, -3, 1, 0, 0, 12);
+    bg.addColorStop(0, body === "#ffffff" ? "#fff" : lighten(body, 0.25));
+    bg.addColorStop(1, dark);
+    ctx.fillStyle = body === "#ffffff" ? "#fff" : bg;
+    ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.stroke();
+    // a small nose/helmet nub marks the front (facing) edge
+    ctx.fillStyle = lighten(color, 0.5);
+    ctx.beginPath(); ctx.arc(7, 0, 3, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
   // lighten a #rrggbb hex toward white by t (0..1) — for metallic highlights.
   function lighten(hex, t) {
     const m = /^#?([0-9a-f]{6})$/i.exec(hex); if (!m) return hex;
@@ -1304,7 +1352,7 @@
     const cv = $("battleCanvas");
     const ctx = cv && cv.getContext ? cv.getContext("2d") : null;
     if (!ctx) { finishRoyaleUI(roy); return; }
-    const W = cv.width, H = cv.height, groundY = 236;
+    const W = cv.width, H = cv.height;
     let shake = 0, flash = 0;
     const sparks = [], projectiles = [], motes = [], hits = [];
 
@@ -1312,39 +1360,53 @@
     const start = ev[0];                 // { squads: [{pi,name,you,units[]}] }
     const nSquads = start.squads.length;
 
-    // lay the squads out in evenly spaced columns across the arena; each squad
-    // is a small 2-row cluster. forms[pi] = array of unit sprites.
+    // ---- TOP-DOWN ARENA ----
+    // Squads are positioned AROUND the arena (evenly on a ring) and face the
+    // centre, seen from above. Positions are kept as logical field coords so a
+    // future 3D renderer can reuse the whole layout + sim and only swap the
+    // projection: fieldToScreen() is the ONE seam to change for 3D (replace the
+    // identity mapping with a perspective/iso projection).
+    const ARENA = { cx: W/2, cy: H/2 + 8, rx: W*0.40, ry: H*0.38 };  // elliptical floor
+    function fieldToScreen(fx, fy) { return { x: fx, y: fy }; }       // 3D SEAM: identity today
+
     const forms = [];
-    const names = [], youFlags = [];
+    const names = [], youFlags = [], homeCentre = [];
     start.squads.forEach((sq, slot) => {
       const pal = SLOT_COLORS[sq.pi % SLOT_COLORS.length];
-      const cx = W * (slot + 1) / (nSquads + 1);     // column centre
+      // spread squads around the ring; YOU anchored at the bottom (slot order
+      // is already stable), others spaced evenly. Angle 90deg = bottom.
+      const ang = Math.PI/2 + (slot / nSquads) * Math.PI * 2;
+      const cx = ARENA.cx + Math.cos(ang) * ARENA.rx * 0.82;
+      const cy = ARENA.cy + Math.sin(ang) * ARENA.ry * 0.82;
+      homeCentre[sq.pi] = { x: cx, y: cy, ang };
       names[sq.pi] = sq.you ? "YOU" : sq.name;
       youFlags[sq.pi] = sq.you;
       const n = sq.units.length;
-      const perRow = Math.ceil(n / 2);
-      const gap = perRow >= 3 ? 22 : 26;
-      const scale = n >= 6 ? 0.5 : n >= 4 ? 0.56 : 0.64;
-      const facing = cx < W/2 ? 1 : -1;              // face toward centre
+      const scale = n >= 6 ? 0.52 : n >= 4 ? 0.58 : 0.66;
+      // cluster units in a small grid around the squad's ring point
+      const perRow = Math.ceil(Math.sqrt(n));
+      const gap = 20;
       forms[sq.pi] = sq.units.map((u, i) => {
-        const rowIdx = i % 2, col2 = Math.floor(i / 2);
-        const spanW = (perRow - 1) * gap;
-        const hx = cx - spanW/2 + col2 * gap;
-        const hy = groundY - rowIdx * 24 - (col2 % 2) * 5;
+        const gx = (i % perRow) - (perRow - 1) / 2;
+        const gy = Math.floor(i / perRow) - (Math.ceil(n / perRow) - 1) / 2;
+        const hx = cx + gx * gap;
+        const hy = cy + gy * gap;
         return {
           type: u.type, weapon: u.type,
           hp: u.hp, maxHp: u.maxHp, down: u.hp <= 0,
-          homeX: hx, homeY: hy,       // formation slot
-          ox: 0, oy: 0, tox: 0, toy: 0, // current + target offset from home (movement)
-          x: hx, y: hy,                // live position (home + offset), set each frame
-          scale, col: pal.col, dark: pal.dark, facing,
+          homeX: hx, homeY: hy,
+          ox: 0, oy: 0, tox: 0, toy: 0,
+          x: hx, y: hy,
+          scale, col: pal.col, dark: pal.dark,
+          facing: 1, ang: ang + Math.PI,   // facing angle: toward centre (top-down)
           atk: 0, hurt: 0, deadT: 0, bob: Math.random()*Math.PI*2,
-          step: Math.random()*Math.PI*2, // idle foot-shuffle phase
+          step: Math.random()*Math.PI*2,
         };
       });
     });
-    const midX = [];
-    forms.forEach((f, pi) => { if (f && f.length) midX[pi] = f.reduce((s,u)=>s+u.x,0)/f.length; });
+    // label anchor per squad (screen-space centre of its cluster)
+    const midX = [], labelY = [];
+    forms.forEach((f, pi) => { if (f && f.length) { midX[pi] = homeCentre[pi].x; labelY[pi] = homeCentre[pi].y; } });
 
     const vs = $("vsLine");
     if (vs) vs.innerHTML = start.squads.map(sq =>
@@ -1377,12 +1439,18 @@
     // fighter are now the primary health readout, so no aggregate bar here.
     function squadLabel(pi) {
       const form = forms[pi]; if (!form || !form.length) return;
-      const x = midX[pi], alive = aliveN(form);
-      ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center";
-      ctx.fillStyle = SLOT_COLORS[pi % SLOT_COLORS.length].col;
-      ctx.fillText(names[pi], x, 18);
-      ctx.fillStyle = alive ? "rgba(245,245,245,.8)" : "#ff6b5a"; ctx.font = "11px sans-serif";
-      ctx.fillText(alive ? `${alive}/${form.length} left` : "eliminated", x, 31);
+      const alive = aliveN(form);
+      // place the label just outside the cluster, nudged away from arena centre
+      const c = homeCentre[pi];
+      const lx = clamp(c.x, 44, W-44);
+      const ly = clamp(c.y + (c.y < ARENA.cy ? -34 : 30), 14, H-6);
+      ctx.textAlign = "center";
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillText(names[pi], lx+1, ly+1);
+      ctx.fillStyle = SLOT_COLORS[pi % SLOT_COLORS.length].col; ctx.fillText(names[pi], lx, ly);
+      ctx.font = "11px sans-serif";
+      ctx.fillStyle = alive ? "rgba(245,245,245,.85)" : "#ff6b5a";
+      ctx.fillText(alive ? `${alive}/${form.length} left` : "eliminated", lx, ly + 13);
     }
 
     function applyEnd() {
@@ -1432,24 +1500,24 @@
             const dmgRound = Math.round(e.dmg);
             if (attacker) {
               attacker.atk = 1;
-              attacker.facing = defender.x >= attacker.x ? 1 : -1;   // face the target
+              // top-down: face the target by ANGLE, and advance toward it in 2D
+              attacker.ang = Math.atan2(defender.homeY - attacker.homeY, defender.homeX - attacker.homeX);
               if (!ranged) {
-                // ADVANCE most of the way to the target, then ease back home
-                attacker.tox = clamp((defender.x - attacker.homeX) * 0.72, -220, 220);
-                attacker.toy = (defender.homeY - attacker.homeY) * 0.72;
+                attacker.tox = clamp((defender.homeX - attacker.homeX) * 0.7, -260, 260);
+                attacker.toy = clamp((defender.homeY - attacker.homeY) * 0.7, -200, 200);
               }
             }
             const landImpact = () => {
               defender.hurt = 1; defender.hp = e.defHp;
-              spawnSparks(defender.x, defender.y - 30);
+              spawnSparks(defender.x, defender.y);
               shake = e.volley ? 4 : (e.dmg > 14 ? 10 : 6);
               if (e.dmg > 14) { flash = 0.45; SND.bigHit(); } else if (!e.volley) SND.hit();
-              hits.push({ x: defender.x, y: defender.y - 56, v: "-"+dmgRound, t: 1, col: e.volley ? "#bfe0ff" : "#ffd479" });
+              hits.push({ x: defender.x, y: defender.y - 22, v: "-"+dmgRound, t: 1, col: e.volley ? "#bfe0ff" : "#ffd479" });
             };
             if (ranged && attacker) {
               projectiles.push({
-                x: attacker.x + attacker.facing*14, y: attacker.y - 40*attacker.scale/0.64,
-                tx: defender.x, ty: defender.y - 34*defender.scale/0.64,
+                x: attacker.x + Math.cos(attacker.ang)*12, y: attacker.y + Math.sin(attacker.ang)*12,
+                tx: defender.x, ty: defender.y,
                 kind: attacker.type === "Archer" ? "arrow" : "bolt",
                 col: attacker.type === "Archer" ? "#e8d5a0" : "#c58fff",
                 p: 0, onHit: landImpact
@@ -1459,13 +1527,13 @@
         } else if (e.kind === "dodge") {
           const attacker = unitAt(e.pi, e.ui), defender = unitAt(e.tpi, e.tui);
           if (attacker) attacker.atk = 1;
-          if (defender) hits.push({ x: defender.x, y: defender.y - 56, v: "DODGE", t: 1, col:"#7dff9b" });
+          if (defender) hits.push({ x: defender.x, y: defender.y - 22, v: "DODGE", t: 1, col:"#7dff9b" });
         } else if (e.kind === "ability") {
           const u = unitAt(e.pi, e.ui);
           if (u) {
             const col = e.name === "BULWARK" ? "#8fd0ff" : e.name === "FRENZY" ? "#ff6b5a"
                       : e.name === "BURST" ? "#c58fff" : e.name === "BACKSTAB" ? "#ffb347" : "#fff";
-            hits.push({ x: u.x, y: u.y - 74, v: e.name, t: 1.1, col, big: true });
+            hits.push({ x: u.x, y: u.y - 34, v: e.name, t: 1.1, col, big: true });
             if (!u.down) u.atk = Math.max(u.atk, 0.6);
           }
           eventTimer = 0.18;
@@ -1477,7 +1545,7 @@
         } else if (e.kind === "eliminated") {
           const f = forms[e.pi]; if (f) f.forEach(u => { u.down = true; u.hp = 0; });
           shake = 12; SND.elim(); killFeedAdd(e.pi);
-          if (midX[e.pi] != null) hits.push({ x: midX[e.pi], y: 72, v: names[e.pi] + " OUT", t: 1.4, col:"#ff6b5a", big: true });
+          if (midX[e.pi] != null) hits.push({ x: midX[e.pi], y: labelY[e.pi] - 10, v: names[e.pi] + " OUT", t: 1.4, col:"#ff6b5a", big: true });
         } else if (e.kind === "done") {
           /* final ordering already reflected */
         }
@@ -1495,78 +1563,61 @@
       }
     }
 
+    // top-down arena floor: an elliptical field with a border ring, centre
+    // mark and faint grid. (3D SEAM: a future renderer would draw a projected
+    // ground plane here instead; the fighters/sim above stay unchanged.)
     function drawBackdrop() {
-      // --- dusk sky with vertical gradient ---
-      const sky = ctx.createLinearGradient(0,0,0,groundY);
-      sky.addColorStop(0, "#1b2a4a"); sky.addColorStop(0.55, "#3a4f74"); sky.addColorStop(1, "#8a6f6a");
-      ctx.fillStyle = sky; ctx.fillRect(0,0,W,groundY);
-      // --- low sun glow near the horizon ---
-      const sun = ctx.createRadialGradient(W*0.5, groundY-6, 6, W*0.5, groundY-6, 190);
-      sun.addColorStop(0, "rgba(255,221,150,.55)"); sun.addColorStop(0.4, "rgba(255,180,120,.22)"); sun.addColorStop(1, "rgba(255,180,120,0)");
-      ctx.fillStyle = sun; ctx.fillRect(0,0,W,groundY);
-      // --- drifting clouds (slow parallax) ---
-      const ct = (last||0)/1000;
+      // backing fill
+      ctx.fillStyle = "#0e1526"; ctx.fillRect(0,0,W,H);
+      // arena floor (radial so the centre reads as lit)
+      const fl = ctx.createRadialGradient(ARENA.cx, ARENA.cy, 20, ARENA.cx, ARENA.cy, ARENA.rx);
+      fl.addColorStop(0, "#6a5a3e"); fl.addColorStop(0.7, "#54472f"); fl.addColorStop(1, "#3a3022");
       ctx.save();
-      for (let i=0;i<4;i++){
-        const cw = 90 + i*26, cx = ((W*0.2 + i*230 + ct*(6+i*2)) % (W+200)) - 100, cy = 34 + (i%2)*26;
-        ctx.globalAlpha = 0.10 + 0.04*(i%2); ctx.fillStyle = "#cdd8ee";
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, cw*0.5, 12, 0, 0, Math.PI*2);
-        ctx.ellipse(cx+cw*0.28, cy-6, cw*0.32, 11, 0, 0, Math.PI*2);
-        ctx.ellipse(cx-cw*0.28, cy-2, cw*0.3, 10, 0, 0, Math.PI*2);
-        ctx.fill();
+      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx, ARENA.ry, 0, 0, Math.PI*2);
+      ctx.fillStyle = fl; ctx.fill();
+      ctx.clip();
+      // faint grid lines for a sense of ground
+      ctx.strokeStyle = "rgba(0,0,0,.14)"; ctx.lineWidth = 1;
+      for (let gx = -ARENA.rx; gx <= ARENA.rx; gx += 44) {
+        ctx.beginPath(); ctx.moveTo(ARENA.cx+gx, ARENA.cy-ARENA.ry); ctx.lineTo(ARENA.cx+gx, ARENA.cy+ARENA.ry); ctx.stroke();
       }
+      for (let gy = -ARENA.ry; gy <= ARENA.ry; gy += 40) {
+        ctx.beginPath(); ctx.moveTo(ARENA.cx-ARENA.rx, ARENA.cy+gy); ctx.lineTo(ARENA.cx+ARENA.rx, ARENA.cy+gy); ctx.stroke();
+      }
+      // centre mark
+      ctx.strokeStyle = "rgba(255,210,150,.18)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, 30, 28, 0, 0, Math.PI*2); ctx.stroke();
       ctx.restore();
-      // --- far hills (hazy, high) ---
-      ctx.fillStyle = "#33455f";
-      ctx.beginPath(); ctx.moveTo(0,groundY);
-      ctx.quadraticCurveTo(W*0.18, groundY-82, W*0.4, groundY-40);
-      ctx.quadraticCurveTo(W*0.66, groundY-96, W, groundY-48);
-      ctx.lineTo(W,groundY); ctx.closePath(); ctx.fill();
-      // --- near hills (darker, lower) ---
-      ctx.fillStyle = "#283a4e";
-      ctx.beginPath(); ctx.moveTo(0,groundY);
-      ctx.quadraticCurveTo(W*0.26, groundY-44, W*0.5, groundY-14);
-      ctx.quadraticCurveTo(W*0.78, groundY-56, W, groundY-20);
-      ctx.lineTo(W,groundY); ctx.closePath(); ctx.fill();
-      // --- ground with gradient + a lit strip near the horizon ---
-      const gr = ctx.createLinearGradient(0,groundY,0,H);
-      gr.addColorStop(0,"#7a6646"); gr.addColorStop(0.5,"#5f4f36"); gr.addColorStop(1,"#3f3527");
-      ctx.fillStyle = gr; ctx.fillRect(0,groundY,W,H-groundY);
-      ctx.fillStyle = "rgba(255,210,150,.10)"; ctx.fillRect(0,groundY,W,3);
-      // scattered ground detail (deterministic so it doesn't flicker)
-      ctx.fillStyle = "rgba(0,0,0,.18)";
-      for (let i=0;i<46;i++){
-        const gx = (i*137.5) % W, gy = groundY + 6 + ((i*53) % (H-groundY-8));
-        ctx.fillRect(gx, gy, 2 + (i%3), 1 + (i%2));
-      }
-      ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+      // border ring
+      ctx.strokeStyle = "#8a6f3a"; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx, ARENA.ry, 0, 0, Math.PI*2); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,230,180,.25)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx-3, ARENA.ry-3, 0, 0, Math.PI*2); ctx.stroke();
     }
 
     function drawVignette() {
-      const vg = ctx.createRadialGradient(W/2, H*0.42, H*0.28, W/2, H*0.5, H*0.95);
-      vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.42)");
+      const vg = ctx.createRadialGradient(W/2, H*0.5, H*0.30, W/2, H*0.5, H*0.95);
+      vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.45)");
       ctx.fillStyle = vg; ctx.fillRect(0,0,W,H);
     }
 
     function drawFormation(form, t) {
-      // draw units sorted by y so nearer ones overlap correctly as they move
+      // draw units sorted by screen-y so lower (nearer) ones overlap on top
       const order = form.map((u,i)=>i).sort((a,b)=> form[a].y - form[b].y);
       for (const i of order) {
         const u = form[i];
-        const bob = u.down ? 0 : Math.sin(t*2 + u.bob) * 1.2;
+        const breathe = u.down ? 0 : Math.sin(t*2 + u.bob) * 0.5;
         const fade = u.down ? (1 - u.deadT * 0.65) : 1;
-        if (u.down && u.deadT >= 1) { ctx.globalAlpha = 0.28; } else { ctx.globalAlpha = fade; }
-        drawWarrior(ctx, u.x, u.y + bob + (u.down ? u.deadT*4 : 0), {
-          color: u.col, dark: u.dark, facing: u.facing,
-          atk: u.atk, hurt: u.hurt, dead: u.down, weapon: u.weapon, scale: u.scale
+        ctx.globalAlpha = (u.down && u.deadT >= 1) ? 0.3 : fade;
+        drawTopFighter(ctx, u.x, u.y, {
+          color: u.col, dark: u.dark, ang: u.ang, atk: u.atk, hurt: u.hurt,
+          dead: u.down, deadT: u.deadT, weapon: u.weapon, scale: u.scale + breathe*0.01
         });
         ctx.globalAlpha = 1;
-        // PRIMARY per-unit HP bar, above each living unit's head
+        // PRIMARY per-unit HP ring/bar, just above the token
         if (!u.down) {
-          const bw = 30 * (u.scale/0.64), bh = 4;
-          const bx = u.x - bw/2, by = u.y - 78 * (u.scale/0.64) + bob;
+          const bw = 24 * (u.scale/0.64), bh = 3.5;
+          const bx = u.x - bw/2, by = u.y - 20 * (u.scale/0.64);
           ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(bx-1, by-1, bw+2, bh+2);
           const frac = clamp(u.hp / u.maxHp, 0, 1);
           ctx.fillStyle = frac > 0.5 ? "#7dff9b" : frac > 0.25 ? "#ffd479" : "#ff6b5a";
@@ -1575,8 +1626,8 @@
       }
     }
 
-    // seed a few drifting motes once
-    for (let i = 0; i < 18; i++) motes.push({ x: Math.random()*W, y: Math.random()*groundY, vx: rand(-6,6), vy: rand(-3,3), r: rand(0.6,1.8), a: rand(0.05,0.18) });
+    // seed a few drifting dust motes across the arena floor
+    for (let i = 0; i < 18; i++) motes.push({ x: Math.random()*W, y: Math.random()*H, vx: rand(-6,6), vy: rand(-5,5), r: rand(0.6,1.8), a: rand(0.05,0.16) });
 
     function drawAll(dt) {
       ctx.save();
@@ -1588,7 +1639,7 @@
       for (const m of motes) {
         m.x += m.vx*dt; m.y += m.vy*dt;
         if (m.x < 0) m.x += W; if (m.x > W) m.x -= W;
-        if (m.y < 0) m.y += groundY; if (m.y > groundY) m.y -= groundY;
+        if (m.y < 0) m.y += H; if (m.y > H) m.y -= H;
         ctx.globalAlpha = m.a; ctx.fillStyle = "#cdd8ee";
         ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, Math.PI*2); ctx.fill();
       }
@@ -1602,7 +1653,7 @@
         const pr = projectiles[i];
         pr.p += dt * 2.6;                      // ~0.38s flight
         const px = pr.x + (pr.tx - pr.x) * clamp(pr.p,0,1);
-        const py = pr.y + (pr.ty - pr.y) * clamp(pr.p,0,1) - Math.sin(clamp(pr.p,0,1)*Math.PI)*16; // arc
+        const py = pr.y + (pr.ty - pr.y) * clamp(pr.p,0,1);   // top-down: travels flat, no vertical arc
         if (pr.p >= 1) { if (pr.onHit) pr.onHit(); projectiles.splice(i,1); continue; }
         if (pr.kind === "arrow") {
           const ang = Math.atan2(pr.ty - pr.y, pr.tx - pr.x);

@@ -376,6 +376,24 @@ drawn procedurally rather than adding sprites.
   suites green. Committed to local main — now 4 commits ahead of the live site (sound,
   difficulty, legendary, kill-feed), still batched per instruction.
 
+## 25. Top-down battle view (2026-11-18) — groundwork for future 3D
+- Rewrote the royale's PRESENTATION from side-on to **top-down**: squads sit around an
+  elliptical arena floor (evenly on a ring, facing centre), drawn from above. New
+  `drawTopFighter` token (body disc + shield arc + facing nub + weapon pointing along an
+  angle) replaces the side-view `drawWarrior` (left in place, now dead/unused). New
+  top-down arena backdrop (floor gradient, grid, centre mark, border ring) replaces the
+  sky/hills. Movement advances in 2D toward the target; projectiles travel flat (no
+  vertical arc); labels/HP bars repositioned for the overhead view.
+- **3D-ready by design:** positions are logical field coords and there's a single
+  `fieldToScreen()` seam (identity today) plus an `ARENA` descriptor — a future WebGL/iso
+  renderer swaps only the projection + token draw, not the layout or the sim. Noted in
+  code comments. 3D itself NOT built (it's a WebGL-scale project).
+- Sim untouched → balance unaffected. Fixed a motes-wrap bug (referenced the removed
+  groundY → now H). All gating suites green; top-down verified across all royale configs.
+- Committed to local main. NOTE: PR #1 already covers the earlier 4 commits (sound,
+  difficulty, legendary, kill-feed); this top-down commit stacks on top and will need to
+  ride that PR's branch or a follow-up — see the deploy note to the user.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,
