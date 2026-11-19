@@ -478,6 +478,18 @@ drawn procedurally rather than adding sprites.
   optimal ~35% / balanced ~25% (fair, gentle gradient that suits "easy to learn").
   Dominant-squad invariant still holds. All gating suites green. Committed to local main.
 
+## 33. Natural unit movement (2026-11-18, owner: "blocky/unnatural" → "individuals with a goal")
+- Diagnosed the blockiness: the animation eased toward a goal that the sim bumped
+  forward in ~10px steps, so each unit accelerated/decelerated every chunk and lurched —
+  start-stop, not walking.
+- Fix (animation only, sim untouched): units now **walk toward their goal at a constant
+  speed** (150 px/s), **turn smoothly** to face their direction of travel (eased heading
+  `hd`, no snapping), and have a subtle **gait bob** while moving / idle breathe when
+  still. Move events now only update the GOAL (no abrupt facing, minimal gating) so the
+  figure glides continuously while the goal stays current. Attacks turn the heading
+  toward the target rather than snapping.
+- Rendering-only → balance unaffected; all gating suites green. Committed to local main.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

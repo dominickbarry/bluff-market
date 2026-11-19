@@ -1570,10 +1570,26 @@
         u.atk = Math.max(0, u.atk - dt*3.2);
         u.hurt = Math.max(0, u.hurt - dt*3.5);
         if (u.down && u.deadT < 1) u.deadT = Math.min(1, u.deadT + dt*2.2);
-        // ease live position toward the sim target position (movement)
-        const k = 1 - Math.pow(0.0006, dt);      // smooth glide
-        u.x += (u.tx - u.x) * k;
-        u.y += (u.ty - u.y) * k;
+        // --- walk toward the goal at CONSTANT SPEED (reads like a person with a
+        // destination), not an ease that stutters on each 10px goal update. The
+        // figure also turns smoothly to face its direction of travel.
+        const dx = u.tx - u.x, dy = u.ty - u.y;
+        const dd = Math.hypot(dx, dy);
+        if (dd > 0.5) {
+          const WALK = 150;                       // px/sec — steady stride
+          const stepLen = Math.min(dd, WALK * dt);
+          u.x += dx / dd * stepLen;
+          u.y += dy / dd * stepLen;
+          u.walk = (u.walk || 0) + stepLen;        // gait phase for a subtle bob
+          // ease heading toward travel direction (no snapping)
+          const want = Math.atan2(dy, dx);
+          let diff = want - (u.hd ?? want);
+          while (diff > Math.PI) diff -= Math.PI*2; while (diff < -Math.PI) diff += Math.PI*2;
+          u.hd = (u.hd ?? want) + diff * Math.min(1, dt*10);
+          u.moving = true;
+        } else {
+          u.moving = false;
+        }
         // decay the transient attack-lunge offset back to zero
         u.lx *= Math.pow(0.02, dt);
         u.ly *= Math.pow(0.02, dt);
@@ -1592,8 +1608,8 @@
             const dmgRound = Math.round(e.dmg);
             if (attacker) {
               attacker.atk = 1;
-              // face the target; a melee hit gives a short lunge toward it
-              attacker.ang = Math.atan2(defender.y - attacker.y, defender.x - attacker.x);
+              // turn to face the target (smooth heading, not a snap); melee lunges
+              attacker.hd = Math.atan2(defender.y - attacker.y, defender.x - attacker.x);
               if (!ranged) {
                 const d = dist(attacker.x, attacker.y, defender.x, defender.y) || 1;
                 attacker.lx = (defender.x - attacker.x) / d * 10;
@@ -1631,9 +1647,12 @@
           }
           eventTimer = 0.18;
         } else if (e.kind === "move") {
+          // just update the GOAL; the per-frame walker glides there smoothly and
+          // turns to face travel on its own. No abrupt facing, minimal gating so
+          // the goal stays current while the figure keeps walking.
           const u = unitAt(e.pi, e.ui);
-          if (u) { u.ang = Math.atan2(e.fy - u.ty, e.fx - u.tx); u.tx = e.fx; u.ty = e.fy; }
-          eventTimer = 0.06;   // moves are frequent; let them flow quickly
+          if (u) { u.tx = e.fx; u.ty = e.fy; }
+          eventTimer = 0.02;
         } else if (e.kind === "round") {
           eventTimer = 0.05;
         } else if (e.kind === "death") {
@@ -1703,12 +1722,14 @@
       const order = form.map((u,i)=>i).sort((a,b)=> (form[a].y+form[a].ly) - (form[b].y+form[b].ly));
       for (const i of order) {
         const u = form[i];
-        const px = u.x + u.lx, py = u.y + u.ly;   // live pos + attack-lunge offset
-        const breathe = u.down ? 0 : Math.sin(t*2 + u.bob) * 0.5;
+        // subtle up/down gait bob while walking; gentle idle breathe otherwise
+        const gait = (!u.down && u.moving) ? Math.abs(Math.sin((u.walk||0)*0.18)) * 1.6 : 0;
+        const breathe = (u.down || u.moving) ? 0 : Math.sin(t*2 + u.bob) * 0.5;
+        const px = u.x + u.lx, py = u.y + u.ly - gait;   // live pos + lunge, minus gait lift
         const fade = u.down ? (1 - u.deadT * 0.65) : 1;
         ctx.globalAlpha = (u.down && u.deadT >= 1) ? 0.3 : fade;
         drawTopFighter(ctx, px, py, {
-          color: u.col, dark: u.dark, ang: u.ang, atk: u.atk, hurt: u.hurt,
+          color: u.col, dark: u.dark, ang: (u.hd ?? u.ang ?? 0), atk: u.atk, hurt: u.hurt,
           dead: u.down, deadT: u.deadT, weapon: u.weapon, scale: u.scale + breathe*0.01
         });
         ctx.globalAlpha = 1;
