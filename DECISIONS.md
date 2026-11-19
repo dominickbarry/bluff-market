@@ -424,6 +424,23 @@ drawn procedurally rather than adding sprites.
   need full re-measurement. Deliberately NOT rushed into this turn — flagged to the owner
   as the focused next step so it's done properly, not half-built.
 
+## 29. Positional combat: nearest-target + movement + range (2026-11-18, owner request)
+- Implemented the deferred positional model (§28). Units now have authoritative field
+  positions in the SIM (seeded on the arena ring via a shared `arenaLayout()` both sim
+  and animation use), target the **nearest** living enemy (not weakest), **move** toward
+  it when out of range, and **strike only within range** — melee short (~34px), Archer
+  ~230 / Mage ~190; per-type move speed. Sim emits `fx,fy` in `start` + per-round `move`
+  events; the animation now reads positions FROM the sim and glides units to them
+  (replacing its own ring layout), with a short lunge on melee hits.
+- CHAOS retuned 0.25 → 0.12: positional range/movement adds its own variance, so less
+  explicit RNG is needed; restored the "dominant squad wins >70%" invariant (was 61.5%).
+- Balance: positional combat diluted the solo player's edge (nearest-target + ranged
+  kiting + 3 rivals) → win rate fell to ~9%. Swept START_GOLD (sweep: 95→10%, 110→16%,
+  125→34%, 140→40%) and set **120** → optimal ~21-34% across samples (high variance now),
+  a fair, slightly-gentler band that also suits the "easy to learn" goal.
+- All gating suites green; verified positions/move/hit events via probe. Committed to
+  local main (batched for the next deploy).
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

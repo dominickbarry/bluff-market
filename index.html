@@ -333,8 +333,8 @@
   let round = 1;
   const MAX_ROUNDS = 3;
   const UNITS_PER_ROUND = 8;    // kept at 8 — enough for synergies with 4 buyers, without dragging the timed auction
-  const START_GOLD = 80;        // nudged up from 75 to offset the free-for-all CHAOS below.
-  const CHAOS = 0.25;           // free-for-all target randomness: 0 = focus weakest, 1 = fully random. 0.25 = visibly chaotic, strong squads still favoured.
+  const START_GOLD = 120;       // raised from 80: positional combat (ranged kiting + movement + nearest-target) diluted the solo player's edge; sweep showed ~120g restores Normal to ~30%.
+  const CHAOS = 0.12;           // free-for-all target randomness (0=nearest,1=random). Lowered from 0.25: positional range+movement now adds its own variance, so less explicit RNG is needed and strong squads stay favoured.
   let auctionQueue = [];
   let roundLineup = [];     // full snapshot of this round's units (for the preview strip)
   let lineupPos = 0;        // index of the unit currently/last on the block
@@ -884,6 +884,9 @@
     const archerShots = archN >= 1 ? synergyEffect("Archer", archN) : 1;  // shots per archer
     return p.squad.map(u => {
       const maxHp = Math.max(1, Math.round(u.hp * hpMul));
+      // attack range (px, arena space): melee short, Archer/Mage reach far.
+      const range = (u.type === "Archer") ? 230 : (u.type === "Mage") ? 190 : 34;
+      const speed = (u.type === "Rogue") ? 46 : (u.type === "Beast") ? 30 : 36; // px/round closing speed
       return {
         type: u.type, tier: u.tier,
         hp: maxHp, maxHp,
@@ -891,7 +894,8 @@
         armor, dodge, firstStrike,
         isArcher: u.type === "Archer",
         volleyShots: archerShots,        // how many opening shots THIS archer fires
-        bulwarkUsed: false               // Warrior: first hit taken is halved (once)
+        bulwarkUsed: false,              // Warrior: first hit taken is halved (once)
+        range, speed, fx: 0, fy: 0       // combat position (seeded in simRoyale)
       };
     });
   }
@@ -911,6 +915,21 @@
 
   function aliveCount(units) { return units.reduce((n, u) => n + (u.hp > 0 ? 1 : 0), 0); }
   function frontIndex(units) { for (let i = 0; i < units.length; i++) if (units[i].hp > 0) return i; return -1; }
+
+  // Shared arena geometry (canvas 640x300), used by BOTH the sim (authoritative
+  // unit positions) and the animation (rendering), so they always agree. Squads
+  // start clustered on a ring facing the centre; the sim then moves units.
+  const ARENA_W = 640, ARENA_H = 300;
+  function arenaLayout(nSquads) {
+    const cx = ARENA_W/2, cy = ARENA_H/2 + 8, rx = ARENA_W*0.40, ry = ARENA_H*0.38;
+    return { cx, cy, rx, ry,
+      squadCentre(slot) {
+        const ang = Math.PI/2 + (slot / nSquads) * Math.PI * 2;   // slot 0 = bottom
+        return { x: cx + Math.cos(ang)*rx*0.82, y: cy + Math.sin(ang)*ry*0.82, ang };
+      }
+    };
+  }
+  function dist(ax, ay, bx, by) { const dx = ax-bx, dy = ay-by; return Math.sqrt(dx*dx + dy*dy); }
 
   function simBattle(a, b, log, events) {
     const aU = buildUnits(a), bU = buildUnits(b);
@@ -1061,18 +1080,28 @@
     const sqAlive = (s) => s.units.reduce((n,u)=>n+(u.hp>0?1:0),0);
     const livingSquads = () => squads.filter(s => sqAlive(s) > 0);
 
+    // seed each unit's field position: squads clustered on the arena ring.
+    const layout = arenaLayout(squads.length);
+    squads.forEach((s, slot) => {
+      const c = layout.squadCentre(slot);
+      const n = s.units.length, perRow = Math.ceil(Math.sqrt(n)), gap = 20;
+      s.units.forEach((u, i) => {
+        const gx = (i % perRow) - (perRow - 1) / 2;
+        const gy = Math.floor(i / perRow) - (Math.ceil(n / perRow) - 1) / 2;
+        u.fx = c.x + gx * gap; u.fy = c.y + gy * gap;
+      });
+    });
+
     ev({ kind: "start", squads: squads.map(s => ({
       pi: s.pi, name: s.name, you: s.you,
-      units: s.units.map(u => ({ type:u.type, tier:u.tier, hp:u.hp, maxHp:u.maxHp }))
+      units: s.units.map(u => ({ type:u.type, tier:u.tier, hp:u.hp, maxHp:u.maxHp, fx:u.fx, fy:u.fy }))
     })) });
     log.push({ cls:"head", text: `Battle royale: ${squads.map(s=>`${s.name} (${sqAlive(s)}u)`).join(" vs ")}` });
 
-    // pick the weakest living enemy unit across all OTHER squads
-    // Free-for-all targeting with real randomness: gather every living enemy
-    // unit across ALL other squads, then pick with a WEIGHTED random bias toward
-    // weaker targets. So focus-fire is a tendency, not a rule — the brawl
-    // genuinely scatters, which is the chaos a free-for-all should have.
-    function pickTarget(attackerSquad) {
+    // Target the CLOSEST living enemy unit from any OTHER squad (by field
+    // distance). CHAOS keeps its meaning: a small chance to pick a random enemy
+    // instead of the nearest, so the free-for-all still scatters a bit.
+    function pickTarget(attackerSquad, from) {
       const cands = [];
       for (const s of squads) {
         if (s === attackerSquad || sqAlive(s) === 0) continue;
@@ -1081,15 +1110,12 @@
         }
       }
       if (!cands.length) return null;
-      // Free-for-all randomness, tunable via ONE knob (CHAOS 0..1): 0 = always
-      // focus the weakest (deterministic), 1 = pure random target. The default
-      // is a light-moderate value — the brawl visibly scatters while a strong
-      // squad is still clearly favoured. (Measured tradeoff: higher CHAOS lowers
-      // a solo player's win rate sharply in a 1-of-4 free-for-all — see
-      // DECISIONS §27. Exposed here so it's a one-number dial.)
       if (Math.random() < CHAOS) return cands[Math.floor(Math.random() * cands.length)];
-      let best = null;
-      for (const c of cands) { if (!best || c.u.hp < best.u.hp || Math.random() < 0.12) best = c; }
+      let best = null, bestD = Infinity;
+      for (const c of cands) {
+        const d = dist(from.fx, from.fy, c.u.fx, c.u.fy);
+        if (d < bestD) { bestD = d; best = c; }
+      }
       return best;
     }
 
@@ -1104,8 +1130,8 @@
       }
     }
 
-    function strike(atkSquad, atkUnit, atkUi, isVolley) {
-      const tgt = pickTarget(atkSquad);
+    function strike(atkSquad, atkUnit, atkUi, isVolley, preTgt) {
+      const tgt = preTgt || pickTarget(atkSquad, atkUnit);
       if (!tgt) return;
       const def = tgt.u, defSquad = tgt.s, di = tgt.ui;
       if (def.dodge && Math.random() < def.dodge) {
@@ -1138,22 +1164,34 @@
     }));
     checkElims();
 
-    // melee rounds: every living unit on every surviving squad acts once/round.
-    // first-strike units act first; order is otherwise shuffled for fairness.
+    // melee rounds: every living unit targets its NEAREST enemy, MOVES toward it
+    // if out of range, and STRIKES when within range. First-strikers act first.
+    // Round cap raised since units may spend rounds closing distance.
     let round = 0;
-    while (livingSquads().length > 1 && round < 300) {
+    while (livingSquads().length > 1 && round < 600) {
       round++;
       ev({ kind:"round", n: round });
       const actors = [];
       squads.forEach(s => { if (sqAlive(s)) s.units.forEach((u,ui) => { if (u.hp>0) actors.push({ s, u, ui, fs: u.firstStrike }); }); });
-      // shuffle, then stable-sort first-strikers to the front (no seat bias)
       for (let i=actors.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [actors[i],actors[j]]=[actors[j],actors[i]]; }
       actors.sort((x,y)=> (y.fs?1:0)-(x.fs?1:0));
       for (const act of actors) {
-        if (act.u.hp <= 0) continue;              // died earlier this round
-        if (livingSquads().length <= 1) break;    // only one squad left
-        strike(act.s, act.u, act.ui, false);
-        checkElims();
+        if (act.u.hp <= 0) continue;
+        if (livingSquads().length <= 1) break;
+        const u = act.u;
+        const tgt = pickTarget(act.s, u);
+        if (!tgt) continue;
+        const d = dist(u.fx, u.fy, tgt.u.fx, tgt.u.fy);
+        if (d <= u.range) {
+          strike(act.s, u, act.ui, false, tgt);     // in range: attack this target
+          checkElims();
+        } else {
+          // out of range: step toward the target (capped by speed), emit move
+          const step = Math.min(u.speed, d - u.range + 2);
+          u.fx += (tgt.u.fx - u.fx) / d * step;
+          u.fy += (tgt.u.fy - u.fy) / d * step;
+          ev({ kind:"move", pi: act.s.pi, ui: act.ui, fx: u.fx, fy: u.fy });
+        }
       }
     }
 
@@ -1410,44 +1448,42 @@
     const ARENA = { cx: W/2, cy: H/2 + 8, rx: W*0.40, ry: H*0.38 };  // elliptical floor
     function fieldToScreen(fx, fy) { return { x: fx, y: fy }; }       // 3D SEAM: identity today
 
+    // Units now carry AUTHORITATIVE positions from the sim (start.fx/fy) and the
+    // sim emits `move` events; the animation just eases each unit toward its
+    // latest sim position (tx,ty). A brief lunge offset plays on attack.
     const forms = [];
-    const names = [], youFlags = [], homeCentre = [];
-    start.squads.forEach((sq, slot) => {
+    const names = [], youFlags = [];
+    start.squads.forEach((sq) => {
       const pal = SLOT_COLORS[sq.pi % SLOT_COLORS.length];
-      // spread squads around the ring; YOU anchored at the bottom (slot order
-      // is already stable), others spaced evenly. Angle 90deg = bottom.
-      const ang = Math.PI/2 + (slot / nSquads) * Math.PI * 2;
-      const cx = ARENA.cx + Math.cos(ang) * ARENA.rx * 0.82;
-      const cy = ARENA.cy + Math.sin(ang) * ARENA.ry * 0.82;
-      homeCentre[sq.pi] = { x: cx, y: cy, ang };
       names[sq.pi] = sq.you ? "YOU" : sq.name;
       youFlags[sq.pi] = sq.you;
       const n = sq.units.length;
       const scale = n >= 6 ? 0.52 : n >= 4 ? 0.58 : 0.66;
-      // cluster units in a small grid around the squad's ring point
-      const perRow = Math.ceil(Math.sqrt(n));
-      const gap = 20;
-      forms[sq.pi] = sq.units.map((u, i) => {
-        const gx = (i % perRow) - (perRow - 1) / 2;
-        const gy = Math.floor(i / perRow) - (Math.ceil(n / perRow) - 1) / 2;
-        const hx = cx + gx * gap;
-        const hy = cy + gy * gap;
+      forms[sq.pi] = sq.units.map((u) => {
+        const p = fieldToScreen(u.fx, u.fy);
         return {
           type: u.type, weapon: u.type,
           hp: u.hp, maxHp: u.maxHp, down: u.hp <= 0,
-          homeX: hx, homeY: hy,
-          ox: 0, oy: 0, tox: 0, toy: 0,
-          x: hx, y: hy,
+          tx: p.x, ty: p.y,          // sim target position (updated by `move`)
+          x: p.x, y: p.y,            // eased live position
+          lx: 0, ly: 0,              // transient attack-lunge offset
           scale, col: pal.col, dark: pal.dark,
-          facing: 1, ang: ang + Math.PI,   // facing angle: toward centre (top-down)
-          atk: 0, hurt: 0, deadT: 0, bob: Math.random()*Math.PI*2,
-          step: Math.random()*Math.PI*2,
+          ang: 0, atk: 0, hurt: 0, deadT: 0, bob: Math.random()*Math.PI*2,
         };
       });
     });
-    // label anchor per squad (screen-space centre of its cluster)
+    // squad label anchor = mean of its units' live positions (recomputed each draw)
     const midX = [], labelY = [];
-    forms.forEach((f, pi) => { if (f && f.length) { midX[pi] = homeCentre[pi].x; labelY[pi] = homeCentre[pi].y; } });
+    function updateLabels() {
+      forms.forEach((f, pi) => {
+        if (!f || !f.length) return;
+        let sx=0, sy=0, nn=0;
+        f.forEach(u => { if (!u.down) { sx+=u.x; sy+=u.y; nn++; } });
+        if (nn) { midX[pi]=sx/nn; labelY[pi]=sy/nn; }
+        else { midX[pi]=midX[pi]??W/2; labelY[pi]=labelY[pi]??H/2; }
+      });
+    }
+    updateLabels();
 
     const vs = $("vsLine");
     if (vs) vs.innerHTML = start.squads.map(sq =>
@@ -1481,10 +1517,10 @@
     function squadLabel(pi) {
       const form = forms[pi]; if (!form || !form.length) return;
       const alive = aliveN(form);
-      // place the label just outside the cluster, nudged away from arena centre
-      const c = homeCentre[pi];
-      const lx = clamp(c.x, 44, W-44);
-      const ly = clamp(c.y + (c.y < ARENA.cy ? -34 : 30), 14, H-6);
+      // label follows the squad's live cluster centre, nudged off arena centre
+      const cx = midX[pi] ?? W/2, cy = labelY[pi] ?? H/2;
+      const lx = clamp(cx, 44, W-44);
+      const ly = clamp(cy + (cy < ARENA.cy ? -30 : 26), 14, H-6);
       ctx.textAlign = "center";
       ctx.font = "bold 12px sans-serif";
       ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillText(names[pi], lx+1, ly+1);
@@ -1507,27 +1543,16 @@
       allUnits().forEach(u => {
         u.atk = Math.max(0, u.atk - dt*3.2);
         u.hurt = Math.max(0, u.hurt - dt*3.5);
-        if (u.down) {
-          // the fallen stop moving and settle to their slot
-          u.tox = 0; u.toy = 0;
-          if (u.deadT < 1) u.deadT = Math.min(1, u.deadT + dt*2.2);
-        } else {
-          u.step += dt * 3;
-          // idle wander: drift gently around the slot when not committed to a move
-          if (Math.abs(u.tox) < 1 && Math.abs(u.toy) < 1) {
-            u.tox = Math.sin(u.step*0.5) * 4;
-            u.toy = Math.cos(u.step*0.4) * 2;
-          }
-        }
-        // ease current offset toward target offset, then decay target back home
-        const k = 1 - Math.pow(0.0025, dt);      // snappy approach
-        u.ox += (u.tox - u.ox) * k;
-        u.oy += (u.toy - u.oy) * k;
-        u.tox *= Math.pow(0.03, dt);             // target eases back to home
-        u.toy *= Math.pow(0.03, dt);
-        u.x = u.homeX + u.ox;
-        u.y = u.homeY + u.oy;
+        if (u.down && u.deadT < 1) u.deadT = Math.min(1, u.deadT + dt*2.2);
+        // ease live position toward the sim target position (movement)
+        const k = 1 - Math.pow(0.0006, dt);      // smooth glide
+        u.x += (u.tx - u.x) * k;
+        u.y += (u.ty - u.y) * k;
+        // decay the transient attack-lunge offset back to zero
+        u.lx *= Math.pow(0.02, dt);
+        u.ly *= Math.pow(0.02, dt);
       });
+      updateLabels();
       shake = Math.max(0, shake - dt*40);
       flash = Math.max(0, flash - dt*3);
 
@@ -1541,11 +1566,12 @@
             const dmgRound = Math.round(e.dmg);
             if (attacker) {
               attacker.atk = 1;
-              // top-down: face the target by ANGLE, and advance toward it in 2D
-              attacker.ang = Math.atan2(defender.homeY - attacker.homeY, defender.homeX - attacker.homeX);
+              // face the target; a melee hit gives a short lunge toward it
+              attacker.ang = Math.atan2(defender.y - attacker.y, defender.x - attacker.x);
               if (!ranged) {
-                attacker.tox = clamp((defender.homeX - attacker.homeX) * 0.7, -260, 260);
-                attacker.toy = clamp((defender.homeY - attacker.homeY) * 0.7, -200, 200);
+                const d = dist(attacker.x, attacker.y, defender.x, defender.y) || 1;
+                attacker.lx = (defender.x - attacker.x) / d * 10;
+                attacker.ly = (defender.y - attacker.y) / d * 10;
               }
             }
             const landImpact = () => {
@@ -1578,8 +1604,12 @@
             if (!u.down) u.atk = Math.max(u.atk, 0.6);
           }
           eventTimer = 0.18;
+        } else if (e.kind === "move") {
+          const u = unitAt(e.pi, e.ui);
+          if (u) { u.ang = Math.atan2(e.fy - u.ty, e.fx - u.tx); u.tx = e.fx; u.ty = e.fy; }
+          eventTimer = 0.06;   // moves are frequent; let them flow quickly
         } else if (e.kind === "round") {
-          eventTimer = 0.10;
+          eventTimer = 0.05;
         } else if (e.kind === "death") {
           const u = unitAt(e.pi, e.ui);
           if (u) { u.down = true; u.hp = 0; shake = 8; }
@@ -1644,13 +1674,14 @@
 
     function drawFormation(form, t) {
       // draw units sorted by screen-y so lower (nearer) ones overlap on top
-      const order = form.map((u,i)=>i).sort((a,b)=> form[a].y - form[b].y);
+      const order = form.map((u,i)=>i).sort((a,b)=> (form[a].y+form[a].ly) - (form[b].y+form[b].ly));
       for (const i of order) {
         const u = form[i];
+        const px = u.x + u.lx, py = u.y + u.ly;   // live pos + attack-lunge offset
         const breathe = u.down ? 0 : Math.sin(t*2 + u.bob) * 0.5;
         const fade = u.down ? (1 - u.deadT * 0.65) : 1;
         ctx.globalAlpha = (u.down && u.deadT >= 1) ? 0.3 : fade;
-        drawTopFighter(ctx, u.x, u.y, {
+        drawTopFighter(ctx, px, py, {
           color: u.col, dark: u.dark, ang: u.ang, atk: u.atk, hurt: u.hurt,
           dead: u.down, deadT: u.deadT, weapon: u.weapon, scale: u.scale + breathe*0.01
         });
@@ -1658,7 +1689,7 @@
         // PRIMARY per-unit HP ring/bar, just above the token
         if (!u.down) {
           const bw = 24 * (u.scale/0.64), bh = 3.5;
-          const bx = u.x - bw/2, by = u.y - 20 * (u.scale/0.64);
+          const bx = px - bw/2, by = py - 20 * (u.scale/0.64);
           ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(bx-1, by-1, bw+2, bh+2);
           const frac = clamp(u.hp / u.maxHp, 0, 1);
           ctx.fillStyle = frac > 0.5 ? "#7dff9b" : frac > 0.25 ? "#ffd479" : "#ff6b5a";
