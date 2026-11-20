@@ -221,7 +221,8 @@
   .troop { display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.15;
     font-size: 12px; padding: 5px 10px; background: linear-gradient(#27324f,#1b2740);
     color: #cdd8ee; border: 1px solid #46598a; border-radius: 8px;
-    cursor: pointer; box-shadow: none; min-width: 64px; }
+    cursor: grab; box-shadow: none; min-width: 64px; }
+  .troop:active { cursor: grabbing; }
   .troop span { font-size: 10px; opacity: .72; }
   .troop:hover:not(:disabled) { border-color: #ffd479; }
   .troop.armed { background: linear-gradient(#ffd479,#e6a021); color: #2a1600; border-color: #a86e00; transform: translateY(-2px); }
@@ -633,7 +634,6 @@
           <div class="ustats">HP <b>${u.hp}</b> &nbsp;·&nbsp; ATK <b>${u.atk}</b></div>
           <div class="uvalue">Est. value <b>~${estimateValue(u)}g</b></div>
           <div class="uability">${ABILITY[u.type]}</div>
-          <div class="uskill"><b>${ABILITY_NAME[u.type]}:</b> ${ABILITY_TEXT[u.type]}</div>
         </div>
         <div class="bid-panel">
           <div class="mygold">Your gold: <b>${you.gold}g</b></div>
@@ -1007,52 +1007,19 @@
         ev({ kind: "dodge", side, ai: atkIdx, di });
         return;
       }
-      // --- attacker abilities ---
-      let atkPow = atkUnit.atk;
-      let ability = null, pierce = 0;
-      if (!isVolley) {
-        if (atkUnit.type === "Beast") {
-          // Frenzy: up to +50% as HP drops
-          const missing = 1 - clamp(atkUnit.hp / atkUnit.maxHp, 0, 1);
-          const bonus = missing * 0.5;
-          if (bonus > 0.08) { atkPow *= (1 + bonus); ability = "FRENZY"; }
-        } else if (atkUnit.type === "Mage") {
-          if (Math.random() < 0.30) { atkPow *= 1.8; ability = "BURST"; }
-        } else if (atkUnit.type === "Rogue") {
-          if (Math.random() < 0.35) { pierce = 1; atkPow *= 1.15; ability = "BACKSTAB"; } // ignore armor + small crit
-        }
-      }
-      // --- defender ability: Warrior Bulwark (first hit halved) ---
-      let mitig = 1 - (pierce ? 0 : def.armor);
-      let dmg = atkPow * mitig;
+      // No signature abilities: a plain attack reduced by the target's armor.
+      let dmg = atkUnit.atk * (1 - def.armor);
       if (isVolley) dmg *= 0.6; // volley arrows are a softening shot, not full melee
-      let defAbility = null;
-      if (def.type === "Warrior" && !def.bulwarkUsed) {
-        def.bulwarkUsed = true; dmg *= 0.5; defAbility = "BULWARK";
-      }
       def.hp -= dmg;
-      if (ability) ev({ kind: "ability", side, ui: atkIdx, name: ability });
-      if (defAbility) ev({ kind: "ability", side: defSideKey, ui: di, name: defAbility });
       ev({ kind: "hit", side, ai: atkIdx, di, dmg, defHp: Math.max(0, def.hp), volley: !!isVolley });
-      log.push({ text: `${side === "a" ? aName : bName}'s ${atkUnit.type}${ability?" ("+ability+")":""} hits ${def.type} for ${Math.round(dmg)}.` });
+      log.push({ text: `${side === "a" ? aName : bName}'s ${atkUnit.type} hits ${def.type} for ${Math.round(dmg)}.` });
       if (def.hp <= 0) {
         ev({ kind: "death", side: defSideKey, ui: di });
         log.push({ cls: "ko", text: `${defSideKey === "a" ? aName : bName}'s ${def.type} falls.` });
       }
     }
 
-    // opening volley (Archer "First Volley" ability): EVERY archer fires a shot
-    // before melee, even solo. Archer synergy (volleyBonus>=2) adds a second
-    // shot per archer for extra softening.
-    const volleyUnits = [];
-    aU.forEach((u, i) => { if (u.isArcher) volleyUnits.push({ side:"a", u, i, shots: u.volleyShots || 1 }); });
-    bU.forEach((u, i) => { if (u.isArcher) volleyUnits.push({ side:"b", u, i, shots: u.volleyShots || 1 }); });
-    volleyUnits.forEach(({ side, u, i, shots }) => {
-      for (let s = 0; s < shots; s++) {
-        if (aliveCount(aU) && aliveCount(bU))
-          strike(side, u, i, side === "a" ? bU : aU, side === "a" ? "b" : "a", true);
-      }
-    });
+    // (No opening volley / First Volley ability — abilities removed.)
 
     // melee: EVERY living unit acts each round, independently, choosing its own
     // target. Rogue first-strike makes that side's units act first in the round.
@@ -1176,31 +1143,15 @@
         ev({ kind:"dodge", pi: atkSquad.pi, ui: atkUi, tpi: defSquad.pi, tui: di });
         return;
       }
-      let atkPow = atkUnit.atk, ability = null, pierce = 0;
-      if (!isVolley) {
-        if (atkUnit.type === "Beast") { const miss = 1 - clamp(atkUnit.hp/atkUnit.maxHp,0,1); if (miss*0.5 > 0.08) { atkPow *= 1+miss*0.5; ability="FRENZY"; } }
-        else if (atkUnit.type === "Mage") { if (Math.random()<0.30){ atkPow*=1.8; ability="BURST"; } }
-        else if (atkUnit.type === "Rogue") { if (Math.random()<0.35){ pierce=1; atkPow*=1.15; ability="BACKSTAB"; } }
-      }
-      let dmg = atkPow * (1 - (pierce ? 0 : def.armor));
-      if (isVolley) dmg *= 0.6;
-      let defAbility = null;
-      if (def.type === "Warrior" && !def.bulwarkUsed) { def.bulwarkUsed = true; dmg *= 0.5; defAbility = "BULWARK"; }
+      // No signature abilities: a plain attack reduced by the target's armor.
+      // Each type still differs by its base stats, range and attack cadence.
+      const dmg = atkUnit.atk * (1 - def.armor);
       def.hp -= dmg;
-      if (ability) ev({ kind:"ability", pi: atkSquad.pi, ui: atkUi, name: ability });
-      if (defAbility) ev({ kind:"ability", pi: defSquad.pi, ui: di, name: defAbility });
       ev({ kind:"hit", pi: atkSquad.pi, ui: atkUi, tpi: defSquad.pi, tui: di, dmg, defHp: Math.max(0,def.hp), volley: !!isVolley,
            afx: atkUnit.fx, afy: atkUnit.fy });   // attacker's true position, so the animation attacks from the right spot
       if (def.hp <= 0) { ev({ kind:"death", pi: defSquad.pi, ui: di }); }
     }
 
-    // opening volleys: every archer fires at a chosen enemy before melee
-    squads.forEach(s => s.units.forEach((u, ui) => {
-      if (u.isArcher && livingSquads().length > 1) {
-        const shots = u.volleyShots || 1;
-        for (let k=0;k<shots;k++) if (u.hp>0 && livingSquads().length>1) strike(s, u, ui, true);
-      }
-    }));
     checkElims();
 
     // REAL-TIME-ish TICK SIM: no shared turns. Every unit runs on its OWN
@@ -1370,7 +1321,6 @@
       u.moveAccum = 0; u.atk = 0; u.hurt = 0; u.deadT = 0; u.walk = 0;
       u.mv = 0; u.mvx = 0; u.mvy = 0; u.mvStop = null;   // continuous-move intent (set by tickSim)
       s.field.push(u); s.placedAny = true;
-      spawnDrop(u.fx, u.fy, s.pal.col);
       SND.deploy();
     }
 
@@ -1401,30 +1351,23 @@
       for (const c of cands){ const d=dist(att.u.fx,att.u.fy,c.u.fx,c.u.fy); if(d<bd){bd=d;best=c;} }
       return best;
     }
-    const fx2 = []; // transient FX list rendered each frame (reuses spark style)
     function strikeLive(attS, atk, tgt) {
       const def = tgt.u, defS = tgt.s;
-      if (def.dodge && Math.random() < def.dodge) { floatText(def, "DODGE", "#7dff9b"); return; }
-      let atkPow = atk.atk, ability=null, pierce=0;
-      if (atk.type==="Beast"){ const miss=1-clamp(atk.hp/atk.maxHp,0,1); if(miss*0.5>0.08){atkPow*=1+miss*0.5;ability="FRENZY";} }
-      else if (atk.type==="Mage"){ if(Math.random()<0.30){atkPow*=1.8;ability="BURST";} }
-      else if (atk.type==="Rogue"){ if(Math.random()<0.35){pierce=1;atkPow*=1.15;ability="BACKSTAB";} }
-      let dmg = atkPow * (1 - (pierce?0:def.armor));
-      let defAbility=null;
-      if (def.type==="Warrior" && !def.bulwarkUsed){ def.bulwarkUsed=true; dmg*=0.5; defAbility="BULWARK"; }
+      if (def.dodge && Math.random() < def.dodge) return;   // dodge still works (synergy), just no label
+      // No signature abilities: a plain attack, reduced by the target's armor.
+      // Each unit type still has its OWN distinct attack (gesture + projectile),
+      // handled by the renderer below — this is just the damage.
+      const dmg = atk.atk * (1 - def.armor);
       def.hp -= dmg;
       // visuals
       atk.atk = 1; atk.hd = Math.atan2(def.fy-atk.fy, def.fx-atk.fx);
       const ranged = (atk.type==="Archer"||atk.type==="Mage");
-      if (ability) floatText(atk, ability, abilityCol(ability), true);
-      if (defAbility) floatText(def, defAbility, abilityCol(defAbility), true);
+      // Minimal feedback: a brief hurt tint on the target. No sparks, screen
+      // shake, flash, or floating numbers (kept simple until the game is ready
+      // for polish). Each type's distinct ATTACK (melee lunge vs projectile) is
+      // kept so attacks still read differently.
       const land = () => {
         def.hurt = 1;
-        const fx = IMPACT[atk.type] || IMPACT.Warrior;
-        spawnSparks(def.fx, def.fy, fx);
-        shake = Math.max(shake, dmg>14?10:fx.shk);
-        if (dmg>14){ flash=0.4; SND.bigHit(); } else SND.hit();
-        floatText(def, "-"+Math.round(dmg), "#ffd479");
         if (def.hp <= 0) killUnit(defS, def);
       };
       if (ranged) projectiles.push({ x:atk.fx, y:atk.fy, tx:def.fx, ty:def.fy,
@@ -1433,10 +1376,10 @@
     }
     function killUnit(s, u) {
       if (u.down) return;
-      u.hp = 0; u.down = true; u.deadT = 0; shake = Math.max(shake, 8);
+      u.hp = 0; u.down = true; u.deadT = 0;
       if (isOut(s) && !s.out) {
         s.out = true; eliminationOrder.push(s);
-        SND.elim(); killFeedAdd(s.pi); s._outFlash = 1;
+        killFeedAdd(s.pi);
       }
     }
 
@@ -1490,20 +1433,13 @@
       }); });
     }
 
-    // ---- shared render helpers (local, reuse the look of animateRoyale) ----
-    let shake=0, flash=0, battleOver=false, autoAll=false;
-    const sparks=[], projectiles=[], hits=[], motes=[];
-    for (let i=0;i<18;i++) motes.push({ x:Math.random()*W, y:Math.random()*H, vx:rand(-6,6), vy:rand(-5,5), r:rand(0.6,1.8), a:rand(0.05,0.16) });
-    const IMPACT = {
-      Beast:{count:14,col:"#ffd479",col2:"#c98",spd:190,shk:11}, Rogue:{count:6,col:"#eef",col2:"#fff",spd:130,shk:4},
-      Mage:{count:12,col:"#c58fff",col2:"#dff",spd:170,shk:7}, Archer:{count:7,col:"#e8d5a0",col2:"#fff",spd:150,shk:5},
-      Warrior:{count:10,col:"#ffd479",col2:"#fff",spd:150,shk:7},
-    };
-    const abilityCol = (n)=> n==="BULWARK"?"#8fd0ff":n==="FRENZY"?"#ff6b5a":n==="BURST"?"#c58fff":n==="BACKSTAB"?"#ffb347":"#fff";
+    // ---- render state. Kept minimal: just the projectiles that make each
+    // unit type's attack read differently (arrow / bolt). No sparks, motes,
+    // shake, flash, or floating text while the game stays simple. `hits` is kept
+    // only for the brief "place it on the field" placement warning. ----
+    let battleOver=false, autoAll=false;
+    const projectiles=[], hits=[];
     function floatText(u, v, col, big){ hits.push({ x:u.fx, y:u.fy-(big?34:22), v, t:big?1.1:1, col, big:!!big }); }
-    function spawnSparks(x,y,o){ const n=o.count||10,c1=o.col||"#ffd479",c2=o.col2||"#fff",sp=o.spd||150;
-      for(let i=0;i<n;i++){ const a=rand(0,Math.PI*2),s=rand(40,sp); sparks.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-30,t:1,col:Math.random()<.5?c1:c2}); } }
-    function spawnDrop(x,y,col){ for(let i=0;i<16;i++){ const a=rand(0,Math.PI*2),s=rand(30,120); sparks.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-20,t:1,col:Math.random()<.5?col:"#fff"}); } floatText({fx:x,fy:y}, "DEPLOY", col, true); }
     function killFeedAdd(pi){
       const place = squads.length - eliminationOrder.length + 1;
       const feed = $("killFeed"); if (!feed || typeof document==="undefined" || !document.createElement) return;
@@ -1534,21 +1470,32 @@
     // ---- deploy bar + draggable bench (YOU) ----
     let armed = null;                 // the inventory unit you've picked to place
     let ghost = null;                 // {x,y} cursor ghost while placing
+    let dragging = false;             // true while a bench troop is being dragged
     function renderBench() {
       const bench = $("bench"); if (!bench) return;
       if (you.out || (!you.inv.length)) { bench.innerHTML = you.inv.length ? "" : `<span class="bench-empty">All your troops are deployed.</span>`; return; }
       const canDeploy = you.deployTimer <= 0 && !battleOver;
       bench.innerHTML = you.inv.map((u,i) =>
-        `<button type="button" class="troop ${armed===u?'armed':''}" data-i="${i}" ${canDeploy?'':'disabled'}>
+        `<button type="button" class="troop ${armed===u?'armed':''}" data-i="${i}" ${canDeploy?`draggable="true"`:'disabled'}>
            <b style="color:${you.pal.col}">${u.type}</b>
            <span>${u.hp}hp · ${u.atk}atk</span>
          </button>`).join("");
       Array.from(bench.querySelectorAll("button.troop")).forEach(btn => {
+        // CLICK: arm this troop (then click the arena to drop it).
         btn.addEventListener("click", () => {
           if (you.deployTimer > 0 || battleOver) return;
           const u = you.inv[+btn.dataset.i]; if (!u) return;
           armed = (armed === u) ? null : u; renderBench(); updateDeployBar();
         });
+        // DRAG: pick this troop up and drop it onto the arena.
+        btn.addEventListener("dragstart", (e) => {
+          if (you.deployTimer > 0 || battleOver) { if (e.preventDefault) e.preventDefault(); return; }
+          const u = you.inv[+btn.dataset.i]; if (!u) { if (e.preventDefault) e.preventDefault(); return; }
+          armed = u; dragging = true;
+          if (e.dataTransfer) { try { e.dataTransfer.setData("text/plain", btn.dataset.i); e.dataTransfer.effectAllowed = "move"; } catch (_) {} }
+          updateDeployBar();
+        });
+        btn.addEventListener("dragend", () => { dragging = false; ghost = null; });
       });
     }
     function updateDeployBar() {
@@ -1559,9 +1506,9 @@
       if (you.deployTimer > 0) {
         bar.innerHTML = `<span class="db-wait">Next deploy in <b>${you.deployTimer.toFixed(1)}s</b></span>`;
       } else if (armed) {
-        bar.innerHTML = `<span class="db-go">Click the arena to drop your <b style="color:${you.pal.col}">${armed.type}</b> (anywhere)</span>`;
+        bar.innerHTML = `<span class="db-go">Drop your <b style="color:${you.pal.col}">${armed.type}</b> anywhere on the arena (drag it, or click the field)</span>`;
       } else {
-        bar.innerHTML = `<span class="db-go">Deploy ready — pick a troop below, then click the arena</span>`;
+        bar.innerHTML = `<span class="db-go">Deploy ready — drag a troop onto the arena, or click one then click the field</span>`;
       }
     }
 
@@ -1577,18 +1524,27 @@
       const ry=ARENA.shape==="circle"?Math.min(rx,ARENA.ry):ARENA.ry;
       const nx=(x-ARENA.cx)/rx, ny=(y-ARENA.cy)/ry; return nx*nx+ny*ny<=1;
     }
+    // drop the armed troop at field point p (shared by click-drop and drag-drop)
+    function tryDrop(p) {
+      if (!armed || you.deployTimer>0 || you.out || battleOver) return false;
+      if (!inArena(p.x, p.y)) { floatText({fx:p.x,fy:p.y}, "on the field!", "#ff6b5a"); return false; }
+      const u = armed; armed = null; ghost = null; dragging = false;
+      deployUnit(you, u, p.x, p.y);
+      you.deployTimer = DEPLOY_EVERY;
+      renderBench(); updateDeployBar();
+      return true;
+    }
     if (cv && cv.addEventListener) {
-      cv.addEventListener("mousemove", (e)=>{ ghost = armed ? canvasToField(e) : null; });
-      cv.addEventListener("mouseleave", ()=>{ ghost = null; });
-      cv.addEventListener("click", (e)=>{
-        if (!armed || you.deployTimer>0 || you.out || battleOver) return;
-        const p = canvasToField(e);
-        if (!inArena(p.x, p.y)) { floatText({fx:p.x,fy:p.y}, "on the field!", "#ff6b5a"); return; }
-        const u = armed; armed = null; ghost = null;
-        deployUnit(you, u, p.x, p.y);
-        you.deployTimer = DEPLOY_EVERY;
-        renderBench(); updateDeployBar();
-      });
+      // hover: show the placement ghost while a troop is armed or being dragged
+      cv.addEventListener("mousemove", (e)=>{ ghost = (armed || dragging) ? canvasToField(e) : null; });
+      cv.addEventListener("mouseleave", ()=>{ if (!dragging) ghost = null; });
+      // CLICK-to-drop
+      cv.addEventListener("click", (e)=>{ tryDrop(canvasToField(e)); });
+      // DRAG-and-drop: allow the canvas to be a drop target, track the ghost,
+      // and place on release.
+      cv.addEventListener("dragover", (e)=>{ if (e.preventDefault) e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; ghost = canvasToField(e); });
+      cv.addEventListener("dragenter", (e)=>{ if (e.preventDefault) e.preventDefault(); });
+      cv.addEventListener("drop", (e)=>{ if (e.preventDefault) e.preventDefault(); tryDrop(canvasToField(e)); });
     }
     const auto = $("btnAuto");
     if (auto) auto.addEventListener("click", ()=>{ autoAll = true; auto.disabled = true; auto.textContent = "AUTO-DEPLOYING…"; });
@@ -1685,7 +1641,6 @@
         else u.moving=false;
         u.lx*=Math.pow(0.02,dt); u.ly*=Math.pow(0.02,dt);
       }));
-      shake=Math.max(0,shake-dt*40); flash=Math.max(0,flash-dt*3);
 
       if (!battleOver && !you.out) { updateDeployBar(); if (you.deployTimer<=0 && you.inv.length) renderBench(); }
       drawAll(dt);
@@ -1695,13 +1650,8 @@
     function drawAll(dt){
       if (!ctx) return;
       ctx.save();
-      const sx=(Math.random()-0.5)*shake, sy=(Math.random()-0.5)*shake;
-      ctx.clearRect(0,0,W,H); ctx.translate(sx,sy);
+      ctx.clearRect(0,0,W,H);
       drawBackdropL();
-      // motes
-      for (const m of motes){ m.x+=m.vx*dt; m.y+=m.vy*dt; if(m.x<0)m.x+=W; if(m.x>W)m.x-=W; if(m.y<0)m.y+=H; if(m.y>H)m.y-=H;
-        ctx.globalAlpha=m.a; ctx.fillStyle="#cdd8ee"; ctx.beginPath(); ctx.arc(m.x,m.y,m.r,0,Math.PI*2); ctx.fill(); }
-      ctx.globalAlpha=1;
       const tnow=(last||0)/1000;
       // range rings under fighters
       if (showRanges) squads.forEach(s => s.field.forEach(u => { if(u.down)return;
@@ -1751,11 +1701,7 @@
           ctx.fillStyle="#fff"; ctx.beginPath(); ctx.moveTo(7,0); ctx.lineTo(3,-2); ctx.lineTo(3,2); ctx.closePath(); ctx.fill(); ctx.restore(); }
         else { const gg=ctx.createRadialGradient(px,py,0,px,py,7); gg.addColorStop(0,"#fff"); gg.addColorStop(1,pr.col);
           ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(px,py,5,0,Math.PI*2); ctx.fill(); } }
-      // sparks
-      for (let i=sparks.length-1;i>=0;i--){ const s=sparks[i]; s.t-=dt*2; s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=260*dt;
-        if(s.t<=0){sparks.splice(i,1);continue;} ctx.globalAlpha=clamp(s.t,0,1); ctx.fillStyle=s.col; ctx.fillRect(s.x,s.y,3,3); ctx.globalAlpha=1; }
-      if (flash>0){ ctx.globalAlpha=flash*0.4; ctx.fillStyle="#fff"; ctx.fillRect(-20,-20,W+40,H+40); ctx.globalAlpha=1; }
-      // floating text
+      // floating text (only UI messages like the "on the field!" placement warning)
       for (let i=hits.length-1;i>=0;i--){ const h=hits[i]; h.t-=dt*(h.big?0.85:1.0); h.y-=dt*(h.big?20:30);
         if(h.t<=0){hits.splice(i,1);continue;} ctx.globalAlpha=clamp(h.t,0,1);
         ctx.font=`bold ${h.big?16:22}px sans-serif`; ctx.textAlign="center";
@@ -2514,9 +2460,6 @@
       const s2 = synergyText(t, 2), s3 = synergyText(t, 3), s4 = synergyText(t, 4);
       return `<li><span class="ut ut ${t}">${t}</span> ×2 ${s2} &nbsp;·&nbsp; ×3 ${s3} &nbsp;·&nbsp; ×4 ${s4} …</li>`;
     }).join("");
-    const abilRows = TYPES.map(t =>
-      `<li><span class="ut ut ${t}">${t}</span><b>${ABILITY_NAME[t]}:</b> ${ABILITY_TEXT[t]}</li>`
-    ).join("");
     return `
       <h4>THE GOAL</h4>
       <div>Build the strongest squad and win the most battle points over <b>${MAX_ROUNDS} rounds</b>. Most points at the end wins (gold breaks ties).</div>
@@ -2529,7 +2472,7 @@
 
       <h4>DEPLOYMENT — place your troops (drag &amp; drop)</h4>
       <ul>
-        <li><span class="tag">Every ${DEPLOY_EVERY}s</span> a deploy slot opens. Pick a troop from your bench, then <b>click anywhere on the arena</b> to drop it in.</li>
+        <li><span class="tag">Every ${DEPLOY_EVERY}s</span> a deploy slot opens. <b>Drag</b> a troop from your bench onto the arena, or click one and then click the field — drop it <b>anywhere</b>.</li>
         <li><span class="tag">You choose</span> which troop goes first and exactly where it lands — hold your archers back, drop a tank up front, or flank.</li>
         <li><span class="tag">Rivals</span> deploy one of their own troops every ${DEPLOY_EVERY}s too, so the field fills up as you fight.</li>
         <li><span class="tag">Out</span> when a player has no troops left on the field <b>and</b> none in reserve, they are eliminated.</li>
@@ -2547,11 +2490,8 @@
       <div style="opacity:.8;margin-bottom:3px">The bonus grows with EVERY same-type unit beyond the first (no cap at 3):</div>
       <ul>${synRows}</ul>
 
-      <h4>UNIT ABILITIES (every unit has one)</h4>
-      <ul>${abilRows}</ul>
-
       <h4>COMBAT</h4>
-      <div>Once on the field, every unit moves and attacks on its own timer, chasing the <b>nearest</b> enemy. Archers and mages keep their distance and fire while backing away; melee charge in. Where you drop a troop matters — position, timing and synergies decide the fight.</div>
+      <div>Once on the field, every unit moves and attacks on its own timer, chasing the <b>nearest</b> enemy. Each type has its <b>own attack</b> — warriors swing, rogues stab, beasts maul, archers loose arrows, mages hurl bolts. Archers and mages keep their distance and fire while backing away; melee charge in. Where and when you drop a troop — plus your synergies — decides the fight. (No special abilities for now; the game's kept simple while the core comes together.)</div>
 
       <h4>UNIT RARITY</h4>
       <div>Most units are common. Watch for <b>★ Elite</b> (stronger) and the rare
