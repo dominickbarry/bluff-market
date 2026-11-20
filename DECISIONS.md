@@ -540,6 +540,61 @@ drawn procedurally rather than adding sprites.
   6×60 diag runs the player sits ~29%, inside the fair 25-30% band.
 - All gating suites green, including the >70% dominant-squad-wins invariant.
 
+## 38. Live drag-and-drop deployment battle (2026-11-19, owner)
+Owner reshaped the battle phase: instead of watching a pre-computed auto-battle,
+the player now **deploys troops one at a time, live**. Confirmed design:
+keep the auction; every 5s each player may place one troop from inventory; YOU
+drag/click yours anywhere on the arena; the 3 AI rivals auto-deploy one each on
+their timers; placed troops fight in real time; a player is OUT when their
+inventory is empty AND all their placed troops are dead; last army standing wins.
+
+- **Architecture:** `simRoyale` (the pre-computed, event-recording sim) is KEPT
+  unchanged — it still backs `test-harness`/`test-anim` and the balance diag. The
+  live game is a NEW path: `startBattles → renderBattleStage → startLiveBattle`,
+  a self-contained real-time engine (fixed-step sim at 18 Hz + render every frame
+  on rAF) that reuses the same combat math (nearest-target, kite, close, strike
+  with the same abilities/armor/dodge) and the same renderer look.
+- **Deploy UI:** a bench of draggable troop cards (click to arm, click arena to
+  drop), a deploy-countdown bar, a placement ghost + range ring under the cursor,
+  and an **AUTO-DEPLOY REST** button. Place-anywhere (clamped to the arena floor);
+  owner said a placement zone can come later.
+- **Shared constant:** `COOLDOWN` hoisted to module scope so both the sim and the
+  live loop use identical attack cadence.
+- **Stalemate cap:** two kiting ranged squads could orbit forever, so once every
+  troop is deployed a 45s fight clock culls the weakest living squad (lowest total
+  field HP) until one remains. Guards both the browser loop and headless resolve.
+- **Headless path:** when there's no canvas 2D context (tests/diag), the battle
+  deploys everyone at once and ticks to a finish with a hard cap — fast + bounded.
+- **Balance:** a bigger squad snowballs harder in live mode (gradual arrivals
+  focus-fire), so auto-play win rate ran ~48%. Cut `START_GOLD` 130→104; headless
+  auto-play now sits ~30% (4-sample avg), leaving room for human placement skill
+  to push higher. The headless number is a skill-free proxy, i.e. roughly a floor.
+- **Tests:** `test-flow.js` updated (battle driver clicks AUTO-DEPLOY, asserts the
+  "deploy" phase ran instead of the old "skip"). Added **`test-live.js`** (gated):
+  an interactive smoke test that drives the real rAF+canvas deploy loop across 5
+  squad configs (mixed, all-ranged kite→cap, all-melee, lopsided, empty-inventory)
+  and asserts each draws, terminates, and hands off to the NEXT-ROUND button. All
+  5 gating suites green.
+
+## 39. Continuous (tick-independent) movement in the live battle (2026-11-19, owner: "movement should be smooth and not on a ticking timer")
+In the live deploy battle, units stepped visibly because the 18 Hz sim tick both
+moved them (in `speed*MOVE_SCALE` jumps) and decided actions, and the renderer
+only eased toward those jumpy goals. Decoupled the two:
+- **Tick (18 Hz) now only DECIDES**: pick nearest target, resolve attacks on each
+  unit's cooldown, and set a *move intent* (`u.mv` on/off, unit-direction `u.mvx,
+  u.mvy`, and `u.mvStop` = how far a melee unit may still advance before its range).
+- **`moveStep(dt)` runs EVERY FRAME** and integrates `fx,fy` continuously at
+  `u.speed * SPEED_PXPS` px/sec (`SPEED_PXPS = 5.76`, chosen so pace == the old
+  `speed*0.32*18`, keeping balance identical). Arena-clamped; melee can't overshoot.
+- **Renderer** now tracks `fx,fy` with fast exponential smoothing
+  (`k = 1 - 0.0001^dt`, ~14%/frame at 60fps) instead of a capped 150 px/s walk that
+  lagged behind the faster continuous motion. Heading + gait bob now follow the
+  actual per-frame displacement.
+- Headless resolve calls `moveStep(SIM_DT)` after each tick so combat still resolves
+  (and terminates within the 3000-tick cap).
+- Balance unchanged (~26% over 3 diag samples); all 5 gating suites green, live
+  smoke test green across all 5 squad shapes.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

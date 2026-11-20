@@ -102,7 +102,7 @@ function pump(maxMs, stop) {
 // ---- driver ------------------------------------------------------------
 let gameCount = 0;
 function playGame(youStrategy) {
-  for (const k of ["btnNext","btnAfter","btnSkip","btnNextMatch","raiseRow","aucTimer"]) byId[k] = null;
+  for (const k of ["btnNext","btnAfter","btnAuto","btnNextMatch","raiseRow","aucTimer"]) byId[k] = null;
   if (byId.endTitle) byId.endTitle._h = "";
   rafQueue = [];
   const starter = gameCount === 0 ? byId.btnStart : byId.btnReplay;
@@ -132,11 +132,12 @@ function playGame(youStrategy) {
       // if not resolved, loop again: raiseRow may still be live (ongoing war)
       continue;
     }
-    // BATTLE: skip animation if a Skip button is up, then advance matches
-    if (byId.btnSkip && byId.btnSkip.tagName === "button") {
-      const b = byId.btnSkip; byId.btnSkip = null; trace.push("skip");
+    // BATTLE: live deploy phase. Headlessly (null canvas ctx) the battle
+    // auto-resolves and finishRoyaleUI puts up btnAfter; we just click the
+    // AUTO-DEPLOY button if it is up (records that the battle phase ran).
+    if (byId.btnAuto && byId.btnAuto.tagName === "button") {
+      const b = byId.btnAuto; byId.btnAuto = null; trace.push("deploy");
       b._fire("click");
-      // skip path calls finishMatchUI synchronously via rAF; flush it
       pump(2000, () => (byId.btnNextMatch && byId.btnNextMatch.tagName==="button") || (byId.btnAfter && byId.btnAfter.tagName==="button"));
       continue;
     }
@@ -151,7 +152,7 @@ function playGame(youStrategy) {
     // nothing actionable yet — pump a little in case a render is pending
     if (!pump(1500, () => (byId.raiseRow && byId.raiseRow.children && byId.raiseRow.children.length) ||
                           (byId.btnNext&&byId.btnNext.tagName==="button") ||
-                          (byId.btnSkip&&byId.btnSkip.tagName==="button") ||
+                          (byId.btnAuto&&byId.btnAuto.tagName==="button") ||
                           (byId.btnAfter&&byId.btnAfter.tagName==="button") ||
                           (byId.endTitle && /WIN/.test(byId.endTitle._h||"")))) {
       return { champion: null, trace, ok: false, reason: "stuck", tail: trace.slice(-8) };
@@ -218,7 +219,7 @@ if (!youCanWin) {
 // A driver where "You" re-bids the minimum up to 50% of starting gold per unit
 // (patient sniper), mirroring how a human actually plays the timed auction.
 function playGameRebidding() {
-  for (const k of ["btnNext","btnAfter","btnSkip","btnNextMatch","raiseRow","aucTimer"]) byId[k] = null;
+  for (const k of ["btnNext","btnAfter","btnAuto","btnNextMatch","raiseRow","aucTimer"]) byId[k] = null;
   if (byId.endTitle) byId.endTitle._h = "";
   rafQueue = [];
   const starter = gameCount === 0 ? byId.btnStart : byId.btnReplay; gameCount++;
@@ -240,10 +241,10 @@ function playGameRebidding() {
       pump(60000, ()=>(byId.btnNext&&byId.btnNext.tagName==="button"));
       byId.raiseRow=null; continue;
     }
-    if (byId.btnSkip && byId.btnSkip.tagName==="button"){const b=byId.btnSkip;byId.btnSkip=null;b._fire("click");pump(2000,()=>(byId.btnNextMatch&&byId.btnNextMatch.tagName==="button")||(byId.btnAfter&&byId.btnAfter.tagName==="button"));continue;}
+    if (byId.btnAuto && byId.btnAuto.tagName==="button"){const b=byId.btnAuto;byId.btnAuto=null;trace.push("deploy");b._fire("click");pump(2000,()=>(byId.btnNextMatch&&byId.btnNextMatch.tagName==="button")||(byId.btnAfter&&byId.btnAfter.tagName==="button"));continue;}
     if (byId.btnNextMatch && byId.btnNextMatch.tagName==="button"){const b=byId.btnNextMatch;byId.btnNextMatch=null;b._fire("click");continue;}
     if (byId.btnAfter && byId.btnAfter.tagName==="button"){const b=byId.btnAfter;byId.btnAfter=null;b._fire("click");continue;}
-    if(!pump(1500,()=>(byId.raiseRow&&byId.raiseRow.children&&byId.raiseRow.children.length)||(byId.btnNext&&byId.btnNext.tagName==="button")||(byId.btnSkip&&byId.btnSkip.tagName==="button")||(byId.btnAfter&&byId.btnAfter.tagName==="button")||(byId.endTitle&&/WIN/.test(byId.endTitle._h||"")))) return {ok:false};
+    if(!pump(1500,()=>(byId.raiseRow&&byId.raiseRow.children&&byId.raiseRow.children.length)||(byId.btnNext&&byId.btnNext.tagName==="button")||(byId.btnAuto&&byId.btnAuto.tagName==="button")||(byId.btnAfter&&byId.btnAfter.tagName==="button")||(byId.endTitle&&/WIN/.test(byId.endTitle._h||"")))) return {ok:false};
   }
   return {ok:false};
 }
@@ -251,7 +252,7 @@ function playGameRebidding() {
 console.log("\n=== RESULT ===");
 const actedInAuction = actionsSeen.has("raise")||actionsSeen.has("allin")||actionsSeen.has("min")||actionsSeen.has("out")||actionsSeen.has("val");
 if (fails === 0 && ok === total && variety >= 2 && youCanWin &&
-    actionsSeen.has("skip") && actedInAuction) {
+    actionsSeen.has("deploy") && actedInAuction) {
   console.log("ALL FLOW CHECKS PASSED  (player-can-win confirmed:", youCanWin, ")");
   process.exit(0);
 } else {
@@ -260,6 +261,6 @@ if (fails === 0 && ok === total && variety >= 2 && youCanWin &&
     ok!==total?`only ${ok}/${total} ok; `:"",
     variety<2?"winners not varied; ":"",
     !youCanWin?"player could not win even playing well; ":"",
-    !actionsSeen.has("skip")?"battle skip never exercised; ":"");
+    !actionsSeen.has("deploy")?"battle deploy never exercised; ":"");
   process.exit(1);
 }
