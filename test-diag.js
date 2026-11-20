@@ -72,7 +72,10 @@ function series(frac, N){ let u=0,w=0,won=0; for(let i=0;i<N;i++){const r=run(fr
 // Compare bidding styles under the new "more units wins" meta.
 console.log("strategy comparison (per-unit combat):");
 [["spend big (50% cap)",0.5],["balanced (33% cap)",0.33],["buy bodies (22% cap)",0.22]].forEach(([label,frac])=>{
-  const s = series(frac, 150);   // larger sample to cut run-to-run jitter
+  const s = series(frac, 60);    // sample size kept modest: the real-time tick sim
+                                 // makes each driven game slower to pump headlessly,
+                                 // so 60/strategy keeps the diagnostic quick while
+                                 // still giving a usable win-rate read.
   console.log(`  ${label}: won ${(s.w/s.N).toFixed(1)} units/game, ${s.won}/${s.N} games (${(100*s.won/s.N).toFixed(0)}%)`);
 });
 

@@ -451,6 +451,95 @@ drawn procedurally rather than adding sprites.
   screen (persisted) lets the player turn the rings off if they prefer a clean field.
 - Rendering-only; all gating suites green. Committed to local main (batched).
 
+## 31. Real-time tick combat + smaller ranges (2026-11-18, owner request)
+- Replaced the round-based royale loop with a **tick simulation**: no shared turns —
+  each unit runs on its OWN attack cooldown (per-type: Rogue 4 … Beast 7 ticks, staggered
+  start) and moves a small step each tick, so units **move and shoot independently**. Fast
+  units attack more often; archers fire on their own timer while kiting. Still a
+  deterministic sim emitting the same move/hit/death event stream the animation replays;
+  `round` events dropped, `move` events throttled (every ~12px) to keep the stream light.
+- **Smaller ranges** (owner ask): Archer 230→120, Mage 190→95, melee 34→22. Positioning
+  matters more; ranged still out-reach melee but must close in.
+- Balance: re-measured, optimal play ~17-23% / overall ~20% — still fair, no gold retune
+  needed. Dominant-squad invariant holds.
+- test-diag sample trimmed 150→60 per strategy: the tick sim makes each headless-driven
+  game slower to pump, and 540 driven games was timing the diagnostic out (a TEST-HARNESS
+  speed issue, not a game one — the sim itself runs 30 royales in ~26ms). All gating
+  suites green. Committed to local main (batched).
+
+## 32. Even smaller ranges + more movement (2026-11-18, owner request)
+- Ranges cut again: Archer 120→85, Mage 95→65, melee 22→16. Units now fight almost on
+  top of each other; ranged barely out-reaches melee.
+- More movement: the per-tick closing step now scales off each unit's own `speed`
+  (MOVE_SCALE 0.32) instead of a flat 7px, so units cross the field faster AND with
+  per-type character (Rogues dart, Beasts lumber). Move-event throttle tightened to 10px
+  so the brisker movement still streams smoothly.
+- Balance: the extra variance dropped optimal play to ~12%; nudged START_GOLD 120→140 →
+  optimal ~35% / balanced ~25% (fair, gentle gradient that suits "easy to learn").
+  Dominant-squad invariant still holds. All gating suites green. Committed to local main.
+
+## 33. Natural unit movement (2026-11-18, owner: "blocky/unnatural" → "individuals with a goal")
+- Diagnosed the blockiness: the animation eased toward a goal that the sim bumped
+  forward in ~10px steps, so each unit accelerated/decelerated every chunk and lurched —
+  start-stop, not walking.
+- Fix (animation only, sim untouched): units now **walk toward their goal at a constant
+  speed** (150 px/s), **turn smoothly** to face their direction of travel (eased heading
+  `hd`, no snapping), and have a subtle **gait bob** while moving / idle breathe when
+  still. Move events now only update the GOAL (no abrupt facing, minimal gating) so the
+  figure glides continuously while the goal stays current. Attacks turn the heading
+  toward the target rather than snapping.
+- Rendering-only → balance unaffected; all gating suites green. Committed to local main.
+
+## 34. "Move until in range, then attack" — fix the VISUAL desync (2026-11-18, owner)
+- The SIM already did this (move while d>range, strike when d<=range). The problem was
+  animation-only: the figure walked to its goal at its own pace and could be lagging /
+  short of the true sim position when a `hit` event played, so attacks looked like they
+  came from mid-stride or out of range.
+- Fix: `hit` events now carry the attacker's true position (`afx,afy`); on a hit the
+  animation sets the attacker's walk goal to that spot and, if the figure is lagging >10px,
+  closes most of the gap at once — so the strike reads as "walked into range, then hit."
+- Animation-only; sim + balance unchanged; all gating suites green. Committed to local
+  main (now 4 commits ahead of live: real-time ticks, smaller-range/more-move, smooth
+  movement, this range-attack sync).
+
+## 35. Distinct attack per unit type (2026-11-18, owner)
+- Each type now has a visually distinct STRIKE gesture in drawTopFighter (driven by the
+  existing `atk` 0..1 timer): Warrior sword SWING (blade sweeps an arc), Rogue dagger
+  STAB (fast a^2 thrust + snap back), Beast triple CLAW SWIPE (sweeping slashes), Archer
+  bow DRAW-and-loose (string pulls back, arrow projectile), Mage CAST (orb charges bright,
+  bolt projectile). Impact FX also keyed to attacker type — Beast heavy sparks + big
+  shake, Rogue light/quick, Mage purple magical burst, Archer small puff, Warrior sturdy.
+- Rendering-only (no sim/combat/balance change); types' stats + abilities were already
+  distinct — this makes the attacks LOOK different too. All gating suites green. Committed
+  to local main (now 5 commits ahead of live).
+
+## 36. Battle maps (2026-11-18, owner: circle/square/few maps)
+- Added **5 battle maps**, one picked at random per royale: Dust Arena (ellipse),
+  Stone Keep (square/rect), Blood Pit (circle), Frost Field (ellipse, icy palette),
+  Verdant Ring (circle, green). Each sets the floor SHAPE, a radius scale, and a colour
+  palette (floor gradient, border, grid). Map name shown in the battle header.
+- Defined as a data table (`MAPS`) so more are trivial to add. The map is chosen in
+  `simRoyale` (so the spawn ring uses its radius scale) and emitted in the `start` event;
+  the animation reads `start.map` and `drawBackdrop` draws the shape+palette via a
+  `floorPath()` helper (ellipse/rect/circle).
+- Combat UNAFFECTED: squads always spawn on a ring that fits inside every shape, so maps
+  are pure scenery + boundary — no balance change. Verified all 5 appear with valid
+  shapes; all gating suites green. Committed to local main (now 6 commits ahead of live).
+
+## 37. Smaller ranges + kiting (2026-11-18, owner: "range still too big, want more movement")
+- **Ranges tightened again:** Archer 85→55, Mage 65→42, melee 16→12 (arena px). Units
+  now have to close most of the field before they can engage, so the fight stays in motion.
+- **Speeds raised** so the chase reads as lively: Rogue 52, Beast 34, others 42; spawn ring
+  pushed out to 0.95 of the arena radius for a longer approach.
+- **Kiting added** (`simRoyale` tick loop): Archers and Mages that get crowded inside 60%
+  of their range step *away* from the nearest enemy while still firing on their own cooldown,
+  clamped to stay on the floor. Melee is unchanged (close + attack). This is why movement
+  reads as individual and purposeful rather than everyone collapsing onto one point.
+- **Balance:** kiting let ranged units live longer, lifting the solo win rate to ~38%.
+  Pulled back with `START_GOLD` 140→130 (the ~+10g≈+7pt lever, in reverse). Measured over
+  6×60 diag runs the player sits ~29%, inside the fair 25-30% band.
+- All gating suites green, including the >70% dominant-squad-wins invariant.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

@@ -333,7 +333,7 @@
   let round = 1;
   const MAX_ROUNDS = 3;
   const UNITS_PER_ROUND = 8;    // kept at 8 — enough for synergies with 4 buyers, without dragging the timed auction
-  const START_GOLD = 120;       // raised from 80: positional combat (ranged kiting + movement + nearest-target) diluted the solo player's edge; sweep showed ~120g restores Normal to ~30%.
+  const START_GOLD = 130;       // kiting (ranged units keep spacing + fire while retreating) lifted the solo win rate to ~38%; trimming gold ~10 pulls it back to the ~27-28% mid of the fair 25-30% band.
   const CHAOS = 0.12;           // free-for-all target randomness (0=nearest,1=random). Lowered from 0.25: positional range+movement now adds its own variance, so less explicit RNG is needed and strong squads stay favoured.
   let auctionQueue = [];
   let roundLineup = [];     // full snapshot of this round's units (for the preview strip)
@@ -884,9 +884,10 @@
     const archerShots = archN >= 1 ? synergyEffect("Archer", archN) : 1;  // shots per archer
     return p.squad.map(u => {
       const maxHp = Math.max(1, Math.round(u.hp * hpMul));
-      // attack range (px, arena space): melee short, Archer/Mage reach far.
-      const range = (u.type === "Archer") ? 230 : (u.type === "Mage") ? 190 : 34;
-      const speed = (u.type === "Rogue") ? 46 : (u.type === "Beast") ? 30 : 36; // px/round closing speed
+      // attack range (px, arena space) — TIGHT so units chase and the field
+      // stays in motion; ranged keep a kite distance (see simRoyale).
+      const range = (u.type === "Archer") ? 55 : (u.type === "Mage") ? 42 : 12;
+      const speed = (u.type === "Rogue") ? 52 : (u.type === "Beast") ? 34 : 42;  // a bit faster overall → more visible movement
       return {
         type: u.type, tier: u.tier,
         hp: maxHp, maxHp,
@@ -920,12 +921,26 @@
   // unit positions) and the animation (rendering), so they always agree. Squads
   // start clustered on a ring facing the centre; the sim then moves units.
   const ARENA_W = 640, ARENA_H = 300;
+  // A few battle maps: each sets the floor SHAPE ("ellipse" | "rect" | "circle"),
+  // a radius scale, and a palette. Combat is unaffected — squads always spawn on
+  // a ring that fits inside every shape — so a map is purely scenery + boundary.
+  const MAPS = [
+    { name: "Dust Arena",  shape: "ellipse", rscale: 1.00, floor:["#6a5a3e","#54472f","#3a3022"], border:"#8a6f3a", grid:"rgba(0,0,0,.14)" },
+    { name: "Stone Keep",  shape: "rect",    rscale: 0.98, floor:["#5f6472","#474c59","#30343d"], border:"#8f98ad", grid:"rgba(0,0,0,.16)" },
+    { name: "Blood Pit",   shape: "circle",  rscale: 0.92, floor:["#6b4138","#512f29","#36201c"], border:"#a65a4a", grid:"rgba(0,0,0,.18)" },
+    { name: "Frost Field", shape: "ellipse", rscale: 1.00, floor:["#5b7488","#44596b","#2e3d4a"], border:"#9fc6e0", grid:"rgba(255,255,255,.08)" },
+    { name: "Verdant Ring",shape: "circle",  rscale: 0.95, floor:["#4f6a3e","#3c512f","#283621"], border:"#7fae55", grid:"rgba(0,0,0,.15)" },
+  ];
+  let currentMap = MAPS[0];
+  function pickMap() { currentMap = pick(MAPS); return currentMap; }
+
   function arenaLayout(nSquads) {
-    const cx = ARENA_W/2, cy = ARENA_H/2 + 8, rx = ARENA_W*0.40, ry = ARENA_H*0.38;
+    const rs = (currentMap && currentMap.rscale) || 1;
+    const cx = ARENA_W/2, cy = ARENA_H/2 + 8, rx = ARENA_W*0.40*rs, ry = ARENA_H*0.38*rs;
     return { cx, cy, rx, ry,
       squadCentre(slot) {
         const ang = Math.PI/2 + (slot / nSquads) * Math.PI * 2;   // slot 0 = bottom
-        return { x: cx + Math.cos(ang)*rx*0.82, y: cy + Math.sin(ang)*ry*0.82, ang };
+        return { x: cx + Math.cos(ang)*rx*0.95, y: cy + Math.sin(ang)*ry*0.95, ang };  // spawn near the edge → longer approach, more movement
       }
     };
   }
@@ -1071,6 +1086,7 @@
   // Events are keyed by player index (pi/ui for attacker, tpi/tui for target).
   function simRoyale(playerList, log, events) {
     const ev = (e) => { if (events) events.push(e); };
+    pickMap();   // choose this battle's map (sets arena radius scale + scenery)
     // build each squad's combat units
     const squads = playerList.map((p, pi) => {
       let units = buildUnits(p);
@@ -1092,7 +1108,7 @@
       });
     });
 
-    ev({ kind: "start", squads: squads.map(s => ({
+    ev({ kind: "start", map: currentMap, squads: squads.map(s => ({
       pi: s.pi, name: s.name, you: s.you,
       units: s.units.map(u => ({ type:u.type, tier:u.tier, hp:u.hp, maxHp:u.maxHp, fx:u.fx, fy:u.fy, range:u.range }))
     })) });
@@ -1151,7 +1167,8 @@
       def.hp -= dmg;
       if (ability) ev({ kind:"ability", pi: atkSquad.pi, ui: atkUi, name: ability });
       if (defAbility) ev({ kind:"ability", pi: defSquad.pi, ui: di, name: defAbility });
-      ev({ kind:"hit", pi: atkSquad.pi, ui: atkUi, tpi: defSquad.pi, tui: di, dmg, defHp: Math.max(0,def.hp), volley: !!isVolley });
+      ev({ kind:"hit", pi: atkSquad.pi, ui: atkUi, tpi: defSquad.pi, tui: di, dmg, defHp: Math.max(0,def.hp), volley: !!isVolley,
+           afx: atkUnit.fx, afy: atkUnit.fy });   // attacker's true position, so the animation attacks from the right spot
       if (def.hp <= 0) { ev({ kind:"death", pi: defSquad.pi, ui: di }); }
     }
 
@@ -1164,34 +1181,71 @@
     }));
     checkElims();
 
-    // melee rounds: every living unit targets its NEAREST enemy, MOVES toward it
-    // if out of range, and STRIKES when within range. First-strikers act first.
-    // Round cap raised since units may spend rounds closing distance.
-    let round = 0;
-    while (livingSquads().length > 1 && round < 600) {
-      round++;
-      ev({ kind:"round", n: round });
+    // REAL-TIME-ish TICK SIM: no shared turns. Every unit runs on its OWN
+    // attack cooldown and moves a little each tick, so units move and shoot
+    // independently — a fast Rogue strikes more often, an Archer fires on its
+    // own timer while kiting. Deterministic sim; emits the same move/hit event
+    // stream the animation replays. `move` events are throttled so the stream
+    // stays light.
+    // per-type attack cooldown in ticks (lower = attacks more often)
+    const COOLDOWN = { Rogue: 4, Archer: 5, Mage: 6, Warrior: 6, Beast: 7 };
+    squads.forEach(s => s.units.forEach(u => {
+      u.cd = (u.firstStrike ? 1 : 2) + Math.floor(Math.random()*3);  // staggered start so they don't all fire in sync
+      u.moveAccum = 0;
+    }));
+    const MOVE_SCALE = 0.32;        // per-tick fraction of a unit's `speed` (more movement than before)
+    let tick = 0;
+    while (livingSquads().length > 1 && tick < 4000) {
+      tick++;
+      // units act in a shuffled order each tick so there's no fixed priority
       const actors = [];
-      squads.forEach(s => { if (sqAlive(s)) s.units.forEach((u,ui) => { if (u.hp>0) actors.push({ s, u, ui, fs: u.firstStrike }); }); });
+      squads.forEach(s => { if (sqAlive(s)) s.units.forEach((u,ui) => { if (u.hp>0) actors.push({ s, u, ui }); }); });
       for (let i=actors.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [actors[i],actors[j]]=[actors[j],actors[i]]; }
-      actors.sort((x,y)=> (y.fs?1:0)-(x.fs?1:0));
       for (const act of actors) {
-        if (act.u.hp <= 0) continue;
-        if (livingSquads().length <= 1) break;
         const u = act.u;
+        if (u.hp <= 0) continue;
+        if (livingSquads().length <= 1) break;
         const tgt = pickTarget(act.s, u);
         if (!tgt) continue;
-        const d = dist(u.fx, u.fy, tgt.u.fx, tgt.u.fy);
-        if (d <= u.range) {
-          strike(act.s, u, act.ui, false, tgt);     // in range: attack this target
-          checkElims();
+        const d = dist(u.fx, u.fy, tgt.u.fx, tgt.u.fy) || 0.001;
+        const ranged = (u.type === "Archer" || u.type === "Mage");
+        // ranged units keep spacing: if an enemy crowds inside this distance
+        // they back off while still shooting, so the field keeps moving and
+        // archers/mages don't just stand on top of melee.
+        const kiteDist = ranged ? u.range * 0.6 : 0;
+        let moved = false;
+        if (ranged && d < kiteDist) {
+          // enemy too close: step AWAY from it (kite) at the unit's own speed,
+          // then still attack this tick if the cooldown is ready.
+          const step = Math.min(u.speed * MOVE_SCALE, kiteDist - d);
+          const nx = u.fx + (u.fx - tgt.u.fx) / d * step;
+          const ny = u.fy + (u.fy - tgt.u.fy) / d * step;
+          // stay inside the arena so kiters don't walk off the floor
+          u.fx = clamp(nx, ARENA_W*0.06, ARENA_W*0.94);
+          u.fy = clamp(ny, ARENA_H*0.10, ARENA_H*0.92);
+          moved = true;
+          if (u.cd <= 0) { strike(act.s, u, act.ui, false, tgt); u.cd = COOLDOWN[u.type] || 6; checkElims(); }
+        } else if (d <= u.range) {
+          // in range: attack when this unit's own cooldown is ready
+          if (u.cd <= 0) {
+            strike(act.s, u, act.ui, false, tgt);
+            u.cd = COOLDOWN[u.type] || 6;
+            checkElims();
+          }
         } else {
-          // out of range: step toward the target (capped by speed), emit move
-          const step = Math.min(u.speed, d - u.range + 2);
+          // out of range: close distance each tick at the unit's own speed
+          // (Rogues dart, Beasts lumber). Throttle move events so the stream
+          // stays light but movement still reads as near-continuous.
+          const step = Math.min(u.speed * MOVE_SCALE, d - u.range + 1);
           u.fx += (tgt.u.fx - u.fx) / d * step;
           u.fy += (tgt.u.fy - u.fy) / d * step;
-          ev({ kind:"move", pi: act.s.pi, ui: act.ui, fx: u.fx, fy: u.fy });
+          moved = true;
         }
+        if (moved) {
+          u.moveAccum += u.speed * MOVE_SCALE;
+          if (u.moveAccum >= 10) { u.moveAccum = 0; ev({ kind:"move", pi: act.s.pi, ui: act.ui, fx: u.fx, fy: u.fy }); }
+        }
+        if (u.cd > 0) u.cd--;
       }
     }
 
@@ -1267,19 +1321,51 @@
     if (dead) ctx.globalAlpha *= (1 - (deadT||0)*0.5);
 
     const body = hurt > 0.4 ? "#ffffff" : color;
-    // weapon reach (points along +x after rotation), lunges on attack
-    const reach = 14 + (atk||0) * 14;
+    const a = atk || 0;                 // 0..1 attack progress (decays after a strike)
+    // --- per-type ATTACK gesture: each unit type strikes differently ---
+    ctx.lineCap = "round";
     if (weapon === "Archer") {
-      ctx.strokeStyle = "#e8d5a0"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(reach-4, 0, 7, -1.1, 1.1); ctx.stroke();
+      // bow: string draws back as `a` rises, then looses (the arrow is a projectile)
+      const draw = a * 5;
+      ctx.strokeStyle = "#9c6b3f"; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(10, 0, 8, -1.2, 1.2); ctx.stroke();           // bow
+      ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(10+8*Math.cos(-1.2), 8*Math.sin(-1.2));     // string
+      ctx.lineTo(10 - draw, 0); ctx.lineTo(10+8*Math.cos(1.2), 8*Math.sin(1.2)); ctx.stroke();
     } else if (weapon === "Mage") {
-      const gg = ctx.createRadialGradient(reach, 0, 1, reach, 0, 8);
+      // staff + orb that charges bright on cast (bolt is a projectile)
+      ctx.strokeStyle = "#7a5a3a"; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(6,0); ctx.lineTo(16,0); ctx.stroke();
+      const glow = 4 + a*4;
+      const gg = ctx.createRadialGradient(18, 0, 1, 18, 0, glow+4);
       gg.addColorStop(0,"#fff"); gg.addColorStop(1, color);
-      ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(reach, 0, 5, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha *= (0.6 + a*0.4);
+      ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(18, 0, glow, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha = o.dead ? (1-(deadT||0)*0.5) : 1;
+    } else if (weapon === "Rogue") {
+      // dagger STAB: thrusts straight out quickly, snaps back (sharp ease)
+      const thrust = 8 + (a*a) * 22;    // a^2 makes it snappy
+      ctx.strokeStyle = "#d8dde6"; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(thrust, 0); ctx.stroke();
+      ctx.fillStyle = "#eef"; ctx.beginPath(); ctx.arc(thrust, 0, 1.6, 0, Math.PI*2); ctx.fill();
+    } else if (weapon === "Beast") {
+      // claw SWIPE: two short slashes that sweep across as `a` plays
+      const sweep = (a - 0.5) * 1.6;    // -0.8..+0.8 rad sweep
+      ctx.strokeStyle = "#f2e2c2"; ctx.lineWidth = 2;
+      for (const off of [-4, 0, 4]) {
+        ctx.save(); ctx.rotate(sweep);
+        ctx.beginPath(); ctx.moveTo(9, off*0.5); ctx.lineTo(9 + 12 + a*8, off); ctx.stroke();
+        ctx.restore();
+      }
     } else {
-      // melee blade/dagger as a line from the body outward
-      ctx.strokeStyle = "#d8dde6"; ctx.lineWidth = weapon === "Rogue" ? 2.5 : 3.5; ctx.lineCap = "round";
-      ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(reach, 0); ctx.stroke();
+      // Warrior sword SWING: the blade sweeps through an arc during the strike
+      const swing = (a - 0.5) * 2.0;    // sweep angle, centred on the strike
+      ctx.save(); ctx.rotate(swing);
+      ctx.strokeStyle = "#d8dde6"; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(28 + a*8, 0); ctx.stroke();  // blade
+      ctx.strokeStyle = dark; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(6, -4); ctx.lineTo(6, 4); ctx.stroke();        // crossguard
+      ctx.restore();
     }
     // shield arc on the left flank (opposite the weapon)
     ctx.strokeStyle = lighten(color, 0.3); ctx.lineWidth = 3;
@@ -1453,7 +1539,9 @@
     // future 3D renderer can reuse the whole layout + sim and only swap the
     // projection: fieldToScreen() is the ONE seam to change for 3D (replace the
     // identity mapping with a perspective/iso projection).
-    const ARENA = { cx: W/2, cy: H/2 + 8, rx: W*0.40, ry: H*0.38 };  // elliptical floor
+    const MAP = start.map || { shape:"ellipse", rscale:1, floor:["#6a5a3e","#54472f","#3a3022"], border:"#8a6f3a", grid:"rgba(0,0,0,.14)" };
+    const rs = MAP.rscale || 1;
+    const ARENA = { cx: W/2, cy: H/2 + 8, rx: W*0.40*rs, ry: H*0.38*rs, shape: MAP.shape };  // floor region
     function fieldToScreen(fx, fy) { return { x: fx, y: fy }; }       // 3D SEAM: identity today
 
     // Units now carry AUTHORITATIVE positions from the sim (start.fx/fy) and the
@@ -1496,7 +1584,8 @@
     const vs = $("vsLine");
     if (vs) vs.innerHTML = start.squads.map(sq =>
       `<span style="color:${SLOT_COLORS[sq.pi%SLOT_COLORS.length].col}">${sq.you?'YOU':sq.name}</span>`
-    ).join(' &nbsp;·&nbsp; ');
+    ).join(' &nbsp;·&nbsp; ')
+      + (MAP.name ? ` <span style="opacity:.55;font-size:12px">— ${MAP.name}</span>` : "");
 
     let idx = 1;                 // next event to apply (0 is "start")
     let eventTimer = 0;
@@ -1552,10 +1641,26 @@
         u.atk = Math.max(0, u.atk - dt*3.2);
         u.hurt = Math.max(0, u.hurt - dt*3.5);
         if (u.down && u.deadT < 1) u.deadT = Math.min(1, u.deadT + dt*2.2);
-        // ease live position toward the sim target position (movement)
-        const k = 1 - Math.pow(0.0006, dt);      // smooth glide
-        u.x += (u.tx - u.x) * k;
-        u.y += (u.ty - u.y) * k;
+        // --- walk toward the goal at CONSTANT SPEED (reads like a person with a
+        // destination), not an ease that stutters on each 10px goal update. The
+        // figure also turns smoothly to face its direction of travel.
+        const dx = u.tx - u.x, dy = u.ty - u.y;
+        const dd = Math.hypot(dx, dy);
+        if (dd > 0.5) {
+          const WALK = 150;                       // px/sec — steady stride
+          const stepLen = Math.min(dd, WALK * dt);
+          u.x += dx / dd * stepLen;
+          u.y += dy / dd * stepLen;
+          u.walk = (u.walk || 0) + stepLen;        // gait phase for a subtle bob
+          // ease heading toward travel direction (no snapping)
+          const want = Math.atan2(dy, dx);
+          let diff = want - (u.hd ?? want);
+          while (diff > Math.PI) diff -= Math.PI*2; while (diff < -Math.PI) diff += Math.PI*2;
+          u.hd = (u.hd ?? want) + diff * Math.min(1, dt*10);
+          u.moving = true;
+        } else {
+          u.moving = false;
+        }
         // decay the transient attack-lunge offset back to zero
         u.lx *= Math.pow(0.02, dt);
         u.ly *= Math.pow(0.02, dt);
@@ -1574,8 +1679,17 @@
             const dmgRound = Math.round(e.dmg);
             if (attacker) {
               attacker.atk = 1;
-              // face the target; a melee hit gives a short lunge toward it
-              attacker.ang = Math.atan2(defender.y - attacker.y, defender.x - attacker.x);
+              // set the walk goal to the attacker's TRUE sim position (where it's
+              // actually in range), so the attack reads as "walked up, now strikes".
+              if (typeof e.afx === "number") {
+                attacker.tx = e.afx; attacker.ty = e.afy;
+                // if the figure is still lagging well behind, close most of the gap
+                // instantly so it doesn't fire from mid-stride far from the target.
+                const lag = dist(attacker.x, attacker.y, e.afx, e.afy);
+                if (lag > 10) { attacker.x += (e.afx - attacker.x) * 0.7; attacker.y += (e.afy - attacker.y) * 0.7; }
+              }
+              // turn to face the target (smooth heading, not a snap); melee lunges
+              attacker.hd = Math.atan2(defender.y - attacker.y, defender.x - attacker.x);
               if (!ranged) {
                 const d = dist(attacker.x, attacker.y, defender.x, defender.y) || 1;
                 attacker.lx = (defender.x - attacker.x) / d * 10;
@@ -1584,8 +1698,18 @@
             }
             const landImpact = () => {
               defender.hurt = 1; defender.hp = e.defHp;
-              spawnSparks(defender.x, defender.y);
-              shake = e.volley ? 4 : (e.dmg > 14 ? 10 : 6);
+              // impact FX varies by attacker type: Beast heavy, Rogue quick/light,
+              // Mage magical burst, Archer a small puff, Warrior sturdy sparks.
+              const at = attacker ? attacker.type : "Warrior";
+              const fx = {
+                Beast:   { count: 14, col:"#ffd479", col2:"#c98", spd: 190, shk: 11 },
+                Rogue:   { count: 6,  col:"#eef",    col2:"#fff", spd: 130, shk: 4 },
+                Mage:    { count: 12, col:"#c58fff", col2:"#dff", spd: 170, shk: 7 },
+                Archer:  { count: 7,  col:"#e8d5a0", col2:"#fff", spd: 150, shk: 5 },
+                Warrior: { count: 10, col:"#ffd479", col2:"#fff", spd: 150, shk: 7 },
+              }[at] || { count:10, col:"#ffd479", col2:"#fff", spd:150, shk:7 };
+              spawnSparks(defender.x, defender.y, fx);
+              shake = e.volley ? 4 : Math.max(fx.shk, e.dmg > 14 ? 10 : 0);
               if (e.dmg > 14) { flash = 0.45; SND.bigHit(); } else if (!e.volley) SND.hit();
               hits.push({ x: defender.x, y: defender.y - 22, v: "-"+dmgRound, t: 1, col: e.volley ? "#bfe0ff" : "#ffd479" });
             };
@@ -1613,9 +1737,12 @@
           }
           eventTimer = 0.18;
         } else if (e.kind === "move") {
+          // just update the GOAL; the per-frame walker glides there smoothly and
+          // turns to face travel on its own. No abrupt facing, minimal gating so
+          // the goal stays current while the figure keeps walking.
           const u = unitAt(e.pi, e.ui);
-          if (u) { u.ang = Math.atan2(e.fy - u.ty, e.fx - u.tx); u.tx = e.fx; u.ty = e.fy; }
-          eventTimer = 0.06;   // moves are frequent; let them flow quickly
+          if (u) { u.tx = e.fx; u.ty = e.fy; }
+          eventTimer = 0.02;
         } else if (e.kind === "round") {
           eventTimer = 0.05;
         } else if (e.kind === "death") {
@@ -1635,10 +1762,12 @@
       animState.raf = requestAnimationFrame(frame);
     }
 
-    function spawnSparks(x, y) {
-      for (let i = 0; i < 10; i++) {
-        const a = rand(0, Math.PI*2), sp = rand(40, 150);
-        sparks.push({ x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 30, t: 1, col: Math.random()<.5?"#ffd479":"#fff" });
+    function spawnSparks(x, y, opts) {
+      const o = opts || {};
+      const count = o.count || 10, c1 = o.col || "#ffd479", c2 = o.col2 || "#fff", spd = o.spd || 150;
+      for (let i = 0; i < count; i++) {
+        const a = rand(0, Math.PI*2), sp = rand(40, spd);
+        sparks.push({ x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 30, t: 1, col: Math.random()<.5?c1:c2 });
       }
     }
 
@@ -1646,17 +1775,29 @@
     // mark and faint grid. (3D SEAM: a future renderer would draw a projected
     // ground plane here instead; the fighters/sim above stay unchanged.)
     function drawBackdrop() {
+      // trace the floor outline for the current map shape (inset `pad` px)
+      function floorPath(pad) {
+        pad = pad || 0;
+        ctx.beginPath();
+        if (ARENA.shape === "rect") {
+          ctx.rect(ARENA.cx - (ARENA.rx-pad), ARENA.cy - (ARENA.ry-pad), (ARENA.rx-pad)*2, (ARENA.ry-pad)*2);
+        } else if (ARENA.shape === "circle") {
+          const r = Math.min(ARENA.rx, ARENA.ry*1.6) - pad;   // a rounder pit
+          ctx.ellipse(ARENA.cx, ARENA.cy, r, Math.min(r, ARENA.ry-pad), 0, 0, Math.PI*2);
+        } else {
+          ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx-pad, ARENA.ry-pad, 0, 0, Math.PI*2);
+        }
+      }
       // backing fill
       ctx.fillStyle = "#0e1526"; ctx.fillRect(0,0,W,H);
-      // arena floor (radial so the centre reads as lit)
+      // arena floor (radial so the centre reads as lit), coloured by the map
       const fl = ctx.createRadialGradient(ARENA.cx, ARENA.cy, 20, ARENA.cx, ARENA.cy, ARENA.rx);
-      fl.addColorStop(0, "#6a5a3e"); fl.addColorStop(0.7, "#54472f"); fl.addColorStop(1, "#3a3022");
+      fl.addColorStop(0, MAP.floor[0]); fl.addColorStop(0.7, MAP.floor[1]); fl.addColorStop(1, MAP.floor[2]);
       ctx.save();
-      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx, ARENA.ry, 0, 0, Math.PI*2);
-      ctx.fillStyle = fl; ctx.fill();
-      ctx.clip();
+      floorPath(0); ctx.fillStyle = fl; ctx.fill();
+      floorPath(0); ctx.clip();
       // faint grid lines for a sense of ground
-      ctx.strokeStyle = "rgba(0,0,0,.14)"; ctx.lineWidth = 1;
+      ctx.strokeStyle = MAP.grid; ctx.lineWidth = 1;
       for (let gx = -ARENA.rx; gx <= ARENA.rx; gx += 44) {
         ctx.beginPath(); ctx.moveTo(ARENA.cx+gx, ARENA.cy-ARENA.ry); ctx.lineTo(ARENA.cx+gx, ARENA.cy+ARENA.ry); ctx.stroke();
       }
@@ -1664,14 +1805,12 @@
         ctx.beginPath(); ctx.moveTo(ARENA.cx-ARENA.rx, ARENA.cy+gy); ctx.lineTo(ARENA.cx+ARENA.rx, ARENA.cy+gy); ctx.stroke();
       }
       // centre mark
-      ctx.strokeStyle = "rgba(255,210,150,.18)"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, 30, 28, 0, 0, Math.PI*2); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,230,190,.18)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, 30, 26, 0, 0, Math.PI*2); ctx.stroke();
       ctx.restore();
-      // border ring
-      ctx.strokeStyle = "#8a6f3a"; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx, ARENA.ry, 0, 0, Math.PI*2); ctx.stroke();
-      ctx.strokeStyle = "rgba(255,230,180,.25)"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.ellipse(ARENA.cx, ARENA.cy, ARENA.rx-3, ARENA.ry-3, 0, 0, Math.PI*2); ctx.stroke();
+      // border, coloured by the map (double line for a crafted edge)
+      ctx.strokeStyle = MAP.border; ctx.lineWidth = 4; floorPath(0); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,.22)"; ctx.lineWidth = 1; floorPath(3); ctx.stroke();
     }
 
     function drawVignette() {
@@ -1685,12 +1824,14 @@
       const order = form.map((u,i)=>i).sort((a,b)=> (form[a].y+form[a].ly) - (form[b].y+form[b].ly));
       for (const i of order) {
         const u = form[i];
-        const px = u.x + u.lx, py = u.y + u.ly;   // live pos + attack-lunge offset
-        const breathe = u.down ? 0 : Math.sin(t*2 + u.bob) * 0.5;
+        // subtle up/down gait bob while walking; gentle idle breathe otherwise
+        const gait = (!u.down && u.moving) ? Math.abs(Math.sin((u.walk||0)*0.18)) * 1.6 : 0;
+        const breathe = (u.down || u.moving) ? 0 : Math.sin(t*2 + u.bob) * 0.5;
+        const px = u.x + u.lx, py = u.y + u.ly - gait;   // live pos + lunge, minus gait lift
         const fade = u.down ? (1 - u.deadT * 0.65) : 1;
         ctx.globalAlpha = (u.down && u.deadT >= 1) ? 0.3 : fade;
         drawTopFighter(ctx, px, py, {
-          color: u.col, dark: u.dark, ang: u.ang, atk: u.atk, hurt: u.hurt,
+          color: u.col, dark: u.dark, ang: (u.hd ?? u.ang ?? 0), atk: u.atk, hurt: u.hurt,
           dead: u.down, deadT: u.deadT, weapon: u.weapon, scale: u.scale + breathe*0.01
         });
         ctx.globalAlpha = 1;
