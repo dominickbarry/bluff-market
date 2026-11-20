@@ -595,6 +595,38 @@ only eased toward those jumpy goals. Decoupled the two:
 - Balance unchanged (~26% over 3 diag samples); all 5 gating suites green, live
   smoke test green across all 5 squad shapes.
 
+## 40. Drag-and-drop deploy, strip abilities + effects (2026-11-19, owner: "keep it simple until the game is ready for random details")
+Owner asked for three things, plus a mid-turn steer to also cut the visual FX:
+- **Real drag-and-drop deploy** (in addition to click-to-drop). Bench troop cards
+  are now HTML5 `draggable`; `dragstart` arms the troop, the canvas is a drop
+  target (`dragover`/`drop`) that places it on release. Click-to-arm then
+  click-the-field still works. Shared `tryDrop(point)` backs both. Cursor is `grab`.
+- **Removed all 5 signature abilities** (Frenzy, Arcane Burst, Backstab, Bulwark,
+  First Volley / opening archer volley) from ALL THREE combat paths — `strikeLive`
+  (the live game), `simRoyale`, and `simBattle`. Combat is now a plain attack
+  reduced only by the target's armor. KEPT: distinct per-type attacks (gesture +
+  arrow/bolt projectile), synergies, dodge and armor (these are synergy effects,
+  not abilities), HP, kill feed.
+- **Removed combat/visual effects** (owner steer: keep it simple for now) from the
+  LIVE battle only: hit sparks, screen shake, impact flash, floating damage/dodge
+  numbers, drifting dust motes, and the deploy burst. Kept: unit tokens, their
+  per-type attack animation + projectile, HP bars, and the "on the field!"
+  placement warning text. (The old pre-computed `animateRoyale` FX are untouched —
+  it's only used by test-anim.)
+- **Auction card** no longer advertises a named ability (removed the `.uskill`
+  line); the one-line role flavour (`ABILITY[type]`) stays.
+- **How-to panel**: dropped the "Unit abilities" section; combat text now notes
+  each type has its own attack and that there are no special abilities for now.
+- **test-harness.js section 6** rewritten: was "abilities fire"; now asserts NO
+  ability events are ever emitted, that armor still reduces damage, and that plain
+  attacks still land + battles resolve.
+- **Balance** held: ~28% over 5 diag samples (removing abilities widened variance
+  but barely moved the mean), so START_GOLD left at 104. All 5 gating suites green,
+  live smoke test green.
+- NOTE: true drag-and-drop is verified by code review + parse + the non-throwing
+  live loop; faithfully simulating native HTML5 DnD headlessly isn't practical, so
+  the DnD gesture itself wants a real-browser check.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

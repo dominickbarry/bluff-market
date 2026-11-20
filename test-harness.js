@@ -175,57 +175,56 @@ console.log("=== 5. aiBid: still bounded + synergy-aware ===");
   check("aiBid never negative", neg===0, `${neg}`);
 }
 
-console.log("=== 6. unit special abilities ===");
+console.log("=== 6. no signature abilities (removed) + plain armor damage ===");
 {
-  // helper: run many battles and collect ability-event names seen
-  function abilityNames(aSquad, bSquad, runs) {
-    const seen = {};
-    for (let i = 0; i < runs; i++) {
-      const evs = [];
-      T.simBattle({you:false,name:"A",squad:aSquad}, {you:false,name:"B",squad:bSquad}, [], evs);
-      evs.forEach(e => { if (e.kind === "ability") seen[e.name] = (seen[e.name]||0)+1; });
+  // Abilities (Frenzy / Burst / Backstab / Bulwark / First Volley) were removed:
+  // combat is now a plain attack reduced only by the target's (synergy) armor.
+  // (1) No battle should EVER emit an "ability" event, from any unit type.
+  {
+    let abilityEvents = 0, N = 120;
+    const squads = [
+      [U("Beast",24,9)], [U("Mage",14,9)], [U("Rogue",14,9)], [U("Warrior",40,6)], [U("Archer",16,8)],
+    ];
+    for (let i = 0; i < N; i++) {
+      for (const sq of squads) {
+        const evs = [];
+        T.simBattle({you:false,name:"A",squad:sq}, {you:false,name:"B",squad:[U("Warrior",30,7)]}, [], evs);
+        abilityEvents += evs.filter(e => e.kind === "ability").length;
+      }
     }
-    return seen;
+    check("no ability events are emitted anymore", abilityEvents === 0, `${abilityEvents} seen`);
   }
 
-  // Solo Archer fires an opening volley (First Volley ability): the FIRST hit
-  // event should be a volley from the archer's side.
+  // (2) Armor still reduces damage: a Warrior-stacked (armored) squad takes less
+  // damage from identical hits than a no-armor single Warrior. Measure average
+  // damage of hits landed on each over many fights.
   {
-    let volleyFirst = 0, N = 200;
-    for (let i = 0; i < N; i++) {
-      const evs = [];
-      T.simBattle({you:false,name:"A",squad:[U("Archer",16,7)]}, {you:false,name:"B",squad:[U("Warrior",20,7)]}, [], evs);
-      const firstHit = evs.find(e => e.kind === "hit");
-      if (firstHit && firstHit.volley && firstHit.side === "a") volleyFirst++;
+    function avgHitOnDefender(defSquad, N) {
+      let tot = 0, n = 0;
+      for (let i = 0; i < N; i++) {
+        const evs = [];
+        // attacker: 3 plain Warriors; defender: the squad under test
+        T.simBattle({you:false,name:"A",squad:[U("Warrior",30,9),U("Warrior",30,9),U("Warrior",30,9)]},
+                    {you:false,name:"B",squad:defSquad}, [], evs);
+        evs.forEach(e => { if (e.kind === "hit" && e.side === "a") { tot += e.dmg; n++; } });
+      }
+      return n ? tot/n : 0;
     }
-    check("solo Archer opens with a volley", volleyFirst === N, `${volleyFirst}/${N}`);
+    const N = 120;
+    // armored defender: 4 Warriors (stacked armor synergy) vs an un-armored lone Beast
+    const armoredAvg = avgHitOnDefender([U("Warrior",30,6),U("Warrior",30,6),U("Warrior",30,6),U("Warrior",30,6)], N);
+    const softAvg    = avgHitOnDefender([U("Beast",30,6)], N);
+    check("armor reduces incoming damage", armoredAvg < softAvg, `armored ${armoredAvg.toFixed(2)} < soft ${softAvg.toFixed(2)}`);
   }
 
-  // Mage Burst + Rogue Backstab should appear as ability events over many fights
-  const mageSeen = abilityNames([U("Mage",14,9)], [U("Warrior",40,4)], 150);
-  check("Mage triggers BURST sometimes", (mageSeen.BURST||0) > 0, JSON.stringify(mageSeen));
-  const rogueSeen = abilityNames([U("Rogue",14,9)], [U("Warrior",40,4)], 150);
-  check("Rogue triggers BACKSTAB sometimes", (rogueSeen.BACKSTAB||0) > 0, JSON.stringify(rogueSeen));
-
-  // Beast Frenzy appears when the beast is wounded (give the foe enough to hurt it)
-  const beastSeen = abilityNames([U("Beast",24,8)], [U("Warrior",30,9)], 200);
-  check("Beast triggers FRENZY when wounded", (beastSeen.FRENZY||0) > 0, JSON.stringify(beastSeen));
-
-  // Warrior Bulwark: the first hit a lone Warrior takes is halved vs a baseline
-  // unit of identical attack with no armor. Compare first-hit damage.
+  // (3) Units still deal damage and battles still resolve to a winner.
   {
-    // attacker: plain Rogue won't do (backstab/pierce); use a Mage? also bursts.
-    // Use an Archer attacker's MELEE hit (archers have no attack ability), and
-    // skip the volley by reading the first non-volley hit on the warrior.
-    let halved = 0, full = 0, N = 300;
-    for (let i = 0; i < N; i++) {
-      const evs = [];
-      // Archer (no atk ability) vs Warrior: warrior's first melee hit taken is halved
-      T.simBattle({you:false,name:"A",squad:[U("Archer",18,8)]}, {you:false,name:"B",squad:[U("Warrior",50,6)]}, [], evs);
-      const bulwark = evs.find(e => e.kind === "ability" && e.name === "BULWARK");
-      if (bulwark) halved++;
-    }
-    check("Warrior Bulwark triggers (first hit halved)", halved > N*0.8, `${halved}/${N}`);
+    const evs = [];
+    const w = T.simBattle({you:false,name:"A",squad:[U("Rogue",18,10),U("Rogue",18,10)]},
+                          {you:false,name:"B",squad:[U("Archer",16,8)]}, [], evs);
+    const hits = evs.filter(e => e.kind === "hit").length;
+    check("plain attacks still land", hits > 0, `${hits} hits`);
+    check("battle still resolves to a winner", !!w, w && (w.name||"?"));
   }
 }
 
