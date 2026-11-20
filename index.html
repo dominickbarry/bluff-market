@@ -210,6 +210,23 @@
   .howto .abil { display: inline-block; min-width: 66px; font-weight: bold; }
   .howto .ut { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 10px; font-weight: bold; margin-right: 6px; }
   ::-webkit-scrollbar { width: 9px; } ::-webkit-scrollbar-thumb { background: #4a5d85; border-radius: 4px; }
+  /* live deploy bar + draggable troop bench */
+  #battleCanvas { cursor: crosshair; }
+  .deploy-bar { text-align: center; font-size: 13px; margin: 8px 0 4px; min-height: 20px; color: #cdd8ee; }
+  .deploy-bar .db-go { color: #ffd479; font-weight: bold; }
+  .deploy-bar .db-wait { opacity: .8; }
+  .deploy-bar b { color: #ffd479; }
+  .bench { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; min-height: 34px; margin-bottom: 4px; }
+  .bench .bench-empty { font-size: 12px; opacity: .55; font-style: italic; }
+  .troop { display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.15;
+    font-size: 12px; padding: 5px 10px; background: linear-gradient(#27324f,#1b2740);
+    color: #cdd8ee; border: 1px solid #46598a; border-radius: 8px;
+    cursor: pointer; box-shadow: none; min-width: 64px; }
+  .troop span { font-size: 10px; opacity: .72; }
+  .troop:hover:not(:disabled) { border-color: #ffd479; }
+  .troop.armed { background: linear-gradient(#ffd479,#e6a021); color: #2a1600; border-color: #a86e00; transform: translateY(-2px); }
+  .troop.armed b, .troop.armed span { color: #2a1600 !important; opacity: 1; }
+  .troop:disabled { opacity: .4; cursor: default; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -333,8 +350,11 @@
   let round = 1;
   const MAX_ROUNDS = 3;
   const UNITS_PER_ROUND = 8;    // kept at 8 — enough for synergies with 4 buyers, without dragging the timed auction
-  const START_GOLD = 130;       // kiting (ranged units keep spacing + fire while retreating) lifted the solo win rate to ~38%; trimming gold ~10 pulls it back to the ~27-28% mid of the fair 25-30% band.
+  const START_GOLD = 104;       // live deploy mode: a bigger squad snowballs harder (gradual arrivals focus-fire), so auto-play win rate ran ~48%. Trimmed gold so headless auto-play sits ~24%, leaving room for human placement skill to reach ~30-40%.
   const CHAOS = 0.12;           // free-for-all target randomness (0=nearest,1=random). Lowered from 0.25: positional range+movement now adds its own variance, so less explicit RNG is needed and strong squads stay favoured.
+  // per-type attack cooldown in ticks (lower = attacks more often). Module-scope
+  // so BOTH the offline sim (simRoyale) and the live deploy battle use the same values.
+  const COOLDOWN = { Rogue: 4, Archer: 5, Mage: 6, Warrior: 6, Beast: 7 };
   let auctionQueue = [];
   let roundLineup = [];     // full snapshot of this round's units (for the preview strip)
   let lineupPos = 0;        // index of the unit currently/last on the block
@@ -389,6 +409,8 @@
     },
     win()  { this.seq([523,659,784,1047], "triangle", 0.2, 110, 0.22); },
     lose() { this.seq([440,330,247], "sine", 0.16, 140, 0.26); },
+    deploy()  { this.tone(620, 0.12, "triangle", 0.18, 880); },   // a troop hits the field
+    ready()   { this.tone(880, 0.06, "sine", 0.10, 1180); },      // a deploy slot just opened
   };
 
   // ---------- persistent stats (localStorage, safe if unavailable) ----------
@@ -1187,8 +1209,7 @@
     // own timer while kiting. Deterministic sim; emits the same move/hit event
     // stream the animation replays. `move` events are throttled so the stream
     // stays light.
-    // per-type attack cooldown in ticks (lower = attacks more often)
-    const COOLDOWN = { Rogue: 4, Archer: 5, Mage: 6, Warrior: 6, Beast: 7 };
+    // COOLDOWN is module-scope (shared with the live deploy battle).
     squads.forEach(s => s.units.forEach(u => {
       u.cd = (u.firstStrike ? 1 : 2) + Math.floor(Math.random()*3);  // staggered start so they don't all fire in sync
       u.moveAccum = 0;
@@ -1262,40 +1283,475 @@
   // one royale per round; results decided up front, then animated.
   let royale = null;      // { events, placement }
 
+  // Battle phase = LIVE DRAG-AND-DROP DEPLOYMENT. Each player's won squad is an
+  // INVENTORY (not yet on the field). Every DEPLOY_EVERY seconds each player may
+  // place one troop: YOU drag/click one of yours anywhere onto the arena; the
+  // AIs auto-pick and auto-place on their side. Placed troops fight in real time
+  // (same per-unit combat + kiting as simRoyale). A player is OUT when their
+  // inventory is empty AND all their placed troops are dead. Last army standing
+  // wins → same placement/points/next-round handoff as before (finishRoyaleUI).
   function startBattles() {
     $("phaseTag").textContent = "BATTLE";
     renderPlayers(true); // reveal gold now that auction is over
-    const log = [], events = [];
-    const placement = simRoyale(players, log, events);
-    // placement points: 1st..Nth -> (N-1)..0
-    const n = placement.length;
-    placement.forEach((p, i) => { const pts = n - 1 - i; p.points += pts; p.lastPlace = i + 1; p.lastPts = pts; });
-    royale = { events, placement };
-    renderPlayers(true);
     renderBattleStage();
   }
 
   function renderBattleStage() {
     const body = $("phaseBody");
     body.innerHTML = `
-      <div style="text-align:center;font-size:17px;font-weight:bold;color:#ffd479;margin-bottom:8px">
-        ROUND ${round} — BATTLE ROYALE (last squad standing wins)
+      <div style="text-align:center;font-size:17px;font-weight:bold;color:#ffd479;margin-bottom:6px">
+        ROUND ${round} — DEPLOY YOUR TROOPS (last army standing wins)
       </div>
       <div class="vs-line" id="vsLine"></div>
       <canvas id="battleCanvas" width="640" height="300"></canvas>
+      <div class="deploy-bar" id="deployBar"></div>
+      <div class="bench" id="bench"></div>
       <div class="kill-feed" id="killFeed"></div>
       <div class="battle-subtitle" id="battleSub"></div>
       <div class="footer-btns">
-        <button id="btnSkip" type="button" class="alt">SKIP ANIMATION</button>
+        <button id="btnAuto" type="button" class="alt">⏩ AUTO-DEPLOY REST</button>
         <button id="btnRanges" type="button" class="alt"></button>
       </div>
     `;
-    $("btnSkip").addEventListener("click", () => { animState.skip = true; });
     const rb = $("btnRanges");
     const setRangesLabel = () => { rb.textContent = showRanges ? "◎ RANGES: ON" : "◎ RANGES: OFF"; };
     setRangesLabel();
     rb.addEventListener("click", () => { showRanges = !showRanges; try { localStorage.setItem("bluffMarket.ranges", showRanges ? "1" : "0"); } catch (e) {} setRangesLabel(); });
-    animateRoyale(royale);
+    startLiveBattle();
+  }
+
+  const DEPLOY_EVERY = 5;          // seconds between a player's deploy slots
+
+  // Build the live battle: inventories, field state, the deploy clock, the
+  // drag-and-drop handlers, and the per-frame tick+render loop.
+  function startLiveBattle() {
+    animState.skip = false;
+    const cv = $("battleCanvas");
+    const ctx = cv && cv.getContext ? cv.getContext("2d") : null;
+    pickMap();
+    const MAP = currentMap;
+    const W = ARENA_W, H = ARENA_H;
+    const rs = (MAP.rscale || 1);
+    const ARENA = { cx: W/2, cy: H/2 + 8, rx: W*0.40*rs, ry: H*0.38*rs, shape: MAP.shape };
+    const layout = arenaLayout(players.length);
+
+    // each squad: its player, a colour, an INVENTORY (built units, unplaced),
+    // and FIELD units (deployed, fighting). `out` once inventory empty + field dead.
+    const squads = players.map((p, pi) => {
+      const inv = buildUnits(p);
+      inv.forEach(u => { u.bob = Math.random()*Math.PI*2; });   // render phase
+      return {
+        pi, player: p, name: p.you ? "You" : p.name, you: p.you,
+        pal: SLOT_COLORS[pi % SLOT_COLORS.length],
+        inv, field: [], deployTimer: (p.you ? 0 : pi*0.6),  // AIs stagger slightly
+        out: false, placedAny: false,
+      };
+    });
+    const you = squads.find(s => s.you);
+
+    const vs = $("vsLine");
+    if (vs) vs.innerHTML = squads.map(s =>
+      `<span style="color:${s.pal.col}">${s.you?'YOU':s.name}</span>`).join(' &nbsp;·&nbsp; ')
+      + (MAP.name ? ` <span style="opacity:.55;font-size:12px">— ${MAP.name}</span>` : "");
+
+    const sqAlive = (s) => s.field.reduce((n,u)=>n+(u.hp>0?1:0),0);
+    const isOut   = (s) => s.inv.length === 0 && sqAlive(s) === 0 && s.placedAny;
+    const living  = () => squads.filter(s => !s.out);
+    const eliminationOrder = [];
+
+    // deploy one unit from a squad's inventory onto the field at (fx,fy).
+    function deployUnit(s, u, fx, fy) {
+      const i = s.inv.indexOf(u); if (i < 0) return;
+      s.inv.splice(i, 1);
+      u.fx = clamp(fx, ARENA.cx-ARENA.rx+6, ARENA.cx+ARENA.rx-6);
+      u.fy = clamp(fy, ARENA.cy-ARENA.ry+6, ARENA.cy+ARENA.ry-6);
+      u.x = u.fx; u.y = u.fy; u.hd = Math.atan2(ARENA.cy-u.fy, ARENA.cx-u.fx);
+      u.cd = (u.firstStrike ? 1 : 2) + Math.floor(Math.random()*3);
+      u.moveAccum = 0; u.atk = 0; u.hurt = 0; u.deadT = 0; u.walk = 0;
+      s.field.push(u); s.placedAny = true;
+      spawnDrop(u.fx, u.fy, s.pal.col);
+      SND.deploy();
+    }
+
+    // AI picks what to deploy and where: lead with a tanky/front unit, drop near
+    // its own spawn ring but nudged toward the arena centre so it advances.
+    function aiDeploy(s) {
+      if (!s.inv.length) return;
+      const order = { Warrior:0, Beast:1, Rogue:2, Archer:3, Mage:4 };
+      const u = s.inv.slice().sort((a,b)=>(order[a.type]??9)-(order[b.type]??9))[0];
+      const c = layout.squadCentre(s.pi);
+      const jitter = () => rand(-26, 26);
+      // bias a little toward centre so AI troops don't all stack on the rim
+      const fx = c.x + (ARENA.cx - c.x)*0.18 + jitter();
+      const fy = c.y + (ARENA.cy - c.y)*0.18 + jitter();
+      deployUnit(s, u, fx, fy);
+    }
+
+    // ---- live combat tick (shared math with simRoyale: nearest target, kite,
+    // close, strike with the same abilities/armor/dodge) ----
+    const MOVE_SCALE = 0.32;
+    function pickTargetLive(att) {
+      const cands = [];
+      for (const s of squads) { if (s === att.s) continue;
+        for (const u of s.field) if (u.hp > 0) cands.push({ s, u }); }
+      if (!cands.length) return null;
+      if (Math.random() < CHAOS) return cands[Math.floor(Math.random()*cands.length)];
+      let best=null, bd=Infinity;
+      for (const c of cands){ const d=dist(att.u.fx,att.u.fy,c.u.fx,c.u.fy); if(d<bd){bd=d;best=c;} }
+      return best;
+    }
+    const fx2 = []; // transient FX list rendered each frame (reuses spark style)
+    function strikeLive(attS, atk, tgt) {
+      const def = tgt.u, defS = tgt.s;
+      if (def.dodge && Math.random() < def.dodge) { floatText(def, "DODGE", "#7dff9b"); return; }
+      let atkPow = atk.atk, ability=null, pierce=0;
+      if (atk.type==="Beast"){ const miss=1-clamp(atk.hp/atk.maxHp,0,1); if(miss*0.5>0.08){atkPow*=1+miss*0.5;ability="FRENZY";} }
+      else if (atk.type==="Mage"){ if(Math.random()<0.30){atkPow*=1.8;ability="BURST";} }
+      else if (atk.type==="Rogue"){ if(Math.random()<0.35){pierce=1;atkPow*=1.15;ability="BACKSTAB";} }
+      let dmg = atkPow * (1 - (pierce?0:def.armor));
+      let defAbility=null;
+      if (def.type==="Warrior" && !def.bulwarkUsed){ def.bulwarkUsed=true; dmg*=0.5; defAbility="BULWARK"; }
+      def.hp -= dmg;
+      // visuals
+      atk.atk = 1; atk.hd = Math.atan2(def.fy-atk.fy, def.fx-atk.fx);
+      const ranged = (atk.type==="Archer"||atk.type==="Mage");
+      if (ability) floatText(atk, ability, abilityCol(ability), true);
+      if (defAbility) floatText(def, defAbility, abilityCol(defAbility), true);
+      const land = () => {
+        def.hurt = 1;
+        const fx = IMPACT[atk.type] || IMPACT.Warrior;
+        spawnSparks(def.fx, def.fy, fx);
+        shake = Math.max(shake, dmg>14?10:fx.shk);
+        if (dmg>14){ flash=0.4; SND.bigHit(); } else SND.hit();
+        floatText(def, "-"+Math.round(dmg), "#ffd479");
+        if (def.hp <= 0) killUnit(defS, def);
+      };
+      if (ranged) projectiles.push({ x:atk.fx, y:atk.fy, tx:def.fx, ty:def.fy,
+        kind: atk.type==="Archer"?"arrow":"bolt", col: atk.type==="Archer"?"#e8d5a0":"#c58fff", p:0, onHit:land });
+      else { const d=dist(atk.fx,atk.fy,def.fx,def.fy)||1; atk.lx=(def.fx-atk.fx)/d*10; atk.ly=(def.fy-atk.fy)/d*10; land(); }
+    }
+    function killUnit(s, u) {
+      if (u.down) return;
+      u.hp = 0; u.down = true; u.deadT = 0; shake = Math.max(shake, 8);
+      if (isOut(s) && !s.out) {
+        s.out = true; eliminationOrder.push(s);
+        SND.elim(); killFeedAdd(s.pi); s._outFlash = 1;
+      }
+    }
+
+    // advance the sim one logical tick (called at a fixed rate from the frame loop)
+    function tickSim() {
+      if (living().length <= 1) return;
+      const actors = [];
+      squads.forEach(s => { if (!s.out) s.field.forEach(u => { if (u.hp>0) actors.push({ s, u }); }); });
+      for (let i=actors.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [actors[i],actors[j]]=[actors[j],actors[i]]; }
+      for (const act of actors) {
+        const u = act.u; if (u.hp<=0) continue;
+        if (living().length<=1) break;
+        const tgt = pickTargetLive(act);
+        if (!tgt) continue;
+        const d = dist(u.fx,u.fy,tgt.u.fx,tgt.u.fy) || 0.001;
+        const ranged = (u.type==="Archer"||u.type==="Mage");
+        const kiteDist = ranged ? u.range*0.6 : 0;
+        if (ranged && d < kiteDist) {
+          const step = Math.min(u.speed*MOVE_SCALE, kiteDist-d);
+          u.fx = clamp(u.fx + (u.fx-tgt.u.fx)/d*step, ARENA.cx-ARENA.rx+4, ARENA.cx+ARENA.rx-4);
+          u.fy = clamp(u.fy + (u.fy-tgt.u.fy)/d*step, ARENA.cy-ARENA.ry+4, ARENA.cy+ARENA.ry-4);
+          if (u.cd<=0){ strikeLive(act.s,u,tgt); u.cd=COOLDOWN[u.type]||6; }
+        } else if (d <= u.range) {
+          if (u.cd<=0){ strikeLive(act.s,u,tgt); u.cd=COOLDOWN[u.type]||6; }
+        } else {
+          const step = Math.min(u.speed*MOVE_SCALE, d-u.range+1);
+          u.fx += (tgt.u.fx-u.fx)/d*step; u.fy += (tgt.u.fy-u.fy)/d*step;
+        }
+        if (u.cd>0) u.cd--;
+      }
+    }
+
+    // ---- shared render helpers (local, reuse the look of animateRoyale) ----
+    let shake=0, flash=0, battleOver=false, autoAll=false;
+    const sparks=[], projectiles=[], hits=[], motes=[];
+    for (let i=0;i<18;i++) motes.push({ x:Math.random()*W, y:Math.random()*H, vx:rand(-6,6), vy:rand(-5,5), r:rand(0.6,1.8), a:rand(0.05,0.16) });
+    const IMPACT = {
+      Beast:{count:14,col:"#ffd479",col2:"#c98",spd:190,shk:11}, Rogue:{count:6,col:"#eef",col2:"#fff",spd:130,shk:4},
+      Mage:{count:12,col:"#c58fff",col2:"#dff",spd:170,shk:7}, Archer:{count:7,col:"#e8d5a0",col2:"#fff",spd:150,shk:5},
+      Warrior:{count:10,col:"#ffd479",col2:"#fff",spd:150,shk:7},
+    };
+    const abilityCol = (n)=> n==="BULWARK"?"#8fd0ff":n==="FRENZY"?"#ff6b5a":n==="BURST"?"#c58fff":n==="BACKSTAB"?"#ffb347":"#fff";
+    function floatText(u, v, col, big){ hits.push({ x:u.fx, y:u.fy-(big?34:22), v, t:big?1.1:1, col, big:!!big }); }
+    function spawnSparks(x,y,o){ const n=o.count||10,c1=o.col||"#ffd479",c2=o.col2||"#fff",sp=o.spd||150;
+      for(let i=0;i<n;i++){ const a=rand(0,Math.PI*2),s=rand(40,sp); sparks.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-30,t:1,col:Math.random()<.5?c1:c2}); } }
+    function spawnDrop(x,y,col){ for(let i=0;i<16;i++){ const a=rand(0,Math.PI*2),s=rand(30,120); sparks.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-20,t:1,col:Math.random()<.5?col:"#fff"}); } floatText({fx:x,fy:y}, "DEPLOY", col, true); }
+    function killFeedAdd(pi){
+      const place = squads.length - eliminationOrder.length + 1;
+      const feed = $("killFeed"); if (!feed || typeof document==="undefined" || !document.createElement) return;
+      const col = SLOT_COLORS[pi%SLOT_COLORS.length].col;
+      const row = document.createElement("div"); row.className="kf";
+      row.innerHTML = `${ordinal(place)}: <b style="color:${col}">${squads[pi].you?'You':squads[pi].name}</b> eliminated`;
+      feed.appendChild(row);
+    }
+
+    // floor outline for the current map shape
+    function floorPath(pad){ pad=pad||0; ctx.beginPath();
+      if (ARENA.shape==="rect") ctx.rect(ARENA.cx-(ARENA.rx-pad),ARENA.cy-(ARENA.ry-pad),(ARENA.rx-pad)*2,(ARENA.ry-pad)*2);
+      else if (ARENA.shape==="circle"){ const r=Math.min(ARENA.rx,ARENA.ry*1.6)-pad; ctx.ellipse(ARENA.cx,ARENA.cy,r,Math.min(r,ARENA.ry-pad),0,0,Math.PI*2); }
+      else ctx.ellipse(ARENA.cx,ARENA.cy,ARENA.rx-pad,ARENA.ry-pad,0,0,Math.PI*2); }
+    function drawBackdropL(){
+      ctx.fillStyle="#0e1526"; ctx.fillRect(0,0,W,H);
+      const fl=ctx.createRadialGradient(ARENA.cx,ARENA.cy,20,ARENA.cx,ARENA.cy,ARENA.rx);
+      fl.addColorStop(0,MAP.floor[0]); fl.addColorStop(0.7,MAP.floor[1]); fl.addColorStop(1,MAP.floor[2]);
+      ctx.save(); floorPath(0); ctx.fillStyle=fl; ctx.fill(); floorPath(0); ctx.clip();
+      ctx.strokeStyle=MAP.grid; ctx.lineWidth=1;
+      for(let gx=-ARENA.rx;gx<=ARENA.rx;gx+=44){ ctx.beginPath(); ctx.moveTo(ARENA.cx+gx,ARENA.cy-ARENA.ry); ctx.lineTo(ARENA.cx+gx,ARENA.cy+ARENA.ry); ctx.stroke(); }
+      for(let gy=-ARENA.ry;gy<=ARENA.ry;gy+=40){ ctx.beginPath(); ctx.moveTo(ARENA.cx-ARENA.rx,ARENA.cy+gy); ctx.lineTo(ARENA.cx+ARENA.rx,ARENA.cy+gy); ctx.stroke(); }
+      ctx.restore();
+      ctx.strokeStyle=MAP.border; ctx.lineWidth=4; floorPath(0); ctx.stroke();
+      ctx.strokeStyle="rgba(255,255,255,.22)"; ctx.lineWidth=1; floorPath(3); ctx.stroke();
+    }
+
+    // ---- deploy bar + draggable bench (YOU) ----
+    let armed = null;                 // the inventory unit you've picked to place
+    let ghost = null;                 // {x,y} cursor ghost while placing
+    function renderBench() {
+      const bench = $("bench"); if (!bench) return;
+      if (you.out || (!you.inv.length)) { bench.innerHTML = you.inv.length ? "" : `<span class="bench-empty">All your troops are deployed.</span>`; return; }
+      const canDeploy = you.deployTimer <= 0 && !battleOver;
+      bench.innerHTML = you.inv.map((u,i) =>
+        `<button type="button" class="troop ${armed===u?'armed':''}" data-i="${i}" ${canDeploy?'':'disabled'}>
+           <b style="color:${you.pal.col}">${u.type}</b>
+           <span>${u.hp}hp · ${u.atk}atk</span>
+         </button>`).join("");
+      Array.from(bench.querySelectorAll("button.troop")).forEach(btn => {
+        btn.addEventListener("click", () => {
+          if (you.deployTimer > 0 || battleOver) return;
+          const u = you.inv[+btn.dataset.i]; if (!u) return;
+          armed = (armed === u) ? null : u; renderBench(); updateDeployBar();
+        });
+      });
+    }
+    function updateDeployBar() {
+      const bar = $("deployBar"); if (!bar) return;
+      if (battleOver) { bar.innerHTML = ""; return; }
+      if (you.out) { bar.innerHTML = `<span class="db-wait">You are out — watching the rest play out.</span>`; return; }
+      if (!you.inv.length) { bar.innerHTML = `<span class="db-wait">No troops left to deploy. Hold on…</span>`; return; }
+      if (you.deployTimer > 0) {
+        bar.innerHTML = `<span class="db-wait">Next deploy in <b>${you.deployTimer.toFixed(1)}s</b></span>`;
+      } else if (armed) {
+        bar.innerHTML = `<span class="db-go">Click the arena to drop your <b style="color:${you.pal.col}">${armed.type}</b> (anywhere)</span>`;
+      } else {
+        bar.innerHTML = `<span class="db-go">Deploy ready — pick a troop below, then click the arena</span>`;
+      }
+    }
+
+    // place-by-click (the "drop"): arm a troop in the bench, then click the canvas.
+    function canvasToField(ev){
+      const r = cv.getBoundingClientRect();
+      const sx = cv.width / r.width, sy = cv.height / r.height;
+      return { x:(ev.clientX-r.left)*sx, y:(ev.clientY-r.top)*sy };
+    }
+    function inArena(x,y){
+      if (ARENA.shape==="rect") return Math.abs(x-ARENA.cx)<=ARENA.rx && Math.abs(y-ARENA.cy)<=ARENA.ry;
+      const rx=ARENA.shape==="circle"?Math.min(ARENA.rx,ARENA.ry*1.6):ARENA.rx;
+      const ry=ARENA.shape==="circle"?Math.min(rx,ARENA.ry):ARENA.ry;
+      const nx=(x-ARENA.cx)/rx, ny=(y-ARENA.cy)/ry; return nx*nx+ny*ny<=1;
+    }
+    if (cv && cv.addEventListener) {
+      cv.addEventListener("mousemove", (e)=>{ ghost = armed ? canvasToField(e) : null; });
+      cv.addEventListener("mouseleave", ()=>{ ghost = null; });
+      cv.addEventListener("click", (e)=>{
+        if (!armed || you.deployTimer>0 || you.out || battleOver) return;
+        const p = canvasToField(e);
+        if (!inArena(p.x, p.y)) { floatText({fx:p.x,fy:p.y}, "on the field!", "#ff6b5a"); return; }
+        const u = armed; armed = null; ghost = null;
+        deployUnit(you, u, p.x, p.y);
+        you.deployTimer = DEPLOY_EVERY;
+        renderBench(); updateDeployBar();
+      });
+    }
+    const auto = $("btnAuto");
+    if (auto) auto.addEventListener("click", ()=>{ autoAll = true; auto.disabled = true; auto.textContent = "AUTO-DEPLOYING…"; });
+
+    // ---- frame loop: real time; fixed-step sim; render every frame ----
+    let last = performance.now ? performance.now() : Date.now();
+    let simAccum = 0; const SIM_HZ = 18, SIM_DT = 1/SIM_HZ;
+    let endHold = 0;
+    // battle clock (sim seconds elapsed once everyone is on the field): forces a
+    // resolution if two kiters would otherwise orbit forever.
+    let fightClock = 0; const FIGHT_CAP = 45;
+
+    function finishLive() {
+      // placement: survivors first (by remaining field HP), then eliminated reversed
+      const survivors = living().sort((a,b)=>
+        b.field.reduce((s,u)=>s+Math.max(0,u.hp),0) - a.field.reduce((s,u)=>s+Math.max(0,u.hp),0));
+      const placement = [...survivors, ...eliminationOrder.slice().reverse()].map(s=>s.player);
+      const n = placement.length;
+      placement.forEach((p,i)=>{ const pts=n-1-i; p.points+=pts; p.lastPlace=i+1; p.lastPts=pts; });
+      royale = { events: [], placement };
+      $("deployBar") && ($("deployBar").innerHTML="");
+      $("bench") && ($("bench").innerHTML="");
+      finishRoyaleUI(royale);
+    }
+
+    function frame(now){
+      const dt = Math.min(0.05, (now-last)/1000); last = now;
+
+      if (!battleOver) {
+        // deploy clocks tick down; when a slot opens, YOU get to choose, AIs act.
+        squads.forEach(s => {
+          if (s.out || !s.inv.length) return;
+          s.deployTimer -= dt;
+          if (s.deployTimer <= 0) {
+            if (s.you) {
+              if (autoAll) { aiDeploy(s); s.deployTimer = DEPLOY_EVERY; }
+              // else: wait for the player's click; a soft chime the moment it opens
+              else if (!s._readyPinged) { s._readyPinged = true; SND.ready(); }
+            } else {
+              aiDeploy(s); s.deployTimer = DEPLOY_EVERY;
+            }
+          } else { s._readyPinged = false; }
+        });
+        // reset the "ready" ping latch after a deploy consumed the slot
+        squads.forEach(s=>{ if (s.deployTimer>0) s._readyPinged=false; });
+
+        // step the sim at a fixed rate
+        simAccum += dt;
+        let guard = 0;
+        while (simAccum >= SIM_DT && guard++ < 6) { tickSim(); simAccum -= SIM_DT; }
+
+        // promote death fades + check for a winner
+        squads.forEach(s => s.field.forEach(u => { if (u.down && u.deadT<1) u.deadT=Math.min(1,u.deadT+dt*2.2); }));
+        // a squad with nothing left on the field, nothing in inventory → out
+        squads.forEach(s => { if (!s.out && isOut(s)) killUnit(s, {down:false,hp:0}); });
+
+        const anyUndeployed = squads.some(s => !s.out && s.inv.length);
+        // once everyone is deployed, run the fight clock; a long stalemate is
+        // broken by eliminating the weakest living squad (lowest total field HP).
+        if (!anyUndeployed) {
+          fightClock += dt;
+          if (fightClock >= FIGHT_CAP && living().length > 1) {
+            const weakest = living().sort((a,b)=>
+              a.field.reduce((t,u)=>t+Math.max(0,u.hp),0) - b.field.reduce((t,u)=>t+Math.max(0,u.hp),0))[0];
+            weakest.field.forEach(u=>{ if(!u.down) killUnit(weakest, u); });
+            if (!weakest.out) { weakest.out = true; eliminationOrder.push(weakest); }
+            fightClock = FIGHT_CAP - 8;   // give the next-weakest a window before the next cull
+          }
+        }
+        const liveN = living().length;
+        if (liveN <= 1 && !anyUndeployed) { battleOver = true; endHold = 0.8; updateDeployBar(); }
+      } else {
+        endHold -= dt;
+        squads.forEach(s => s.field.forEach(u => { if (u.down && u.deadT<1) u.deadT=Math.min(1,u.deadT+dt*2.2); }));
+        if (endHold <= 0) { drawAll(dt); finishLive(); return; }
+      }
+
+      // per-frame unit visuals: ease live pos toward sim pos, decay fx
+      squads.forEach(s => s.field.forEach(u => {
+        u.atk = Math.max(0, (u.atk||0)-dt*3.2);
+        u.hurt = Math.max(0, (u.hurt||0)-dt*3.5);
+        const dx=u.fx-u.x, dy=u.fy-u.y, dd=Math.hypot(dx,dy);
+        if (dd>0.5){ const WALK=150, sl=Math.min(dd,WALK*dt); u.x+=dx/dd*sl; u.y+=dy/dd*sl; u.walk=(u.walk||0)+sl;
+          const want=Math.atan2(dy,dx); let df=want-(u.hd??want); while(df>Math.PI)df-=Math.PI*2; while(df<-Math.PI)df+=Math.PI*2; u.hd=(u.hd??want)+df*Math.min(1,dt*10); u.moving=true; }
+        else u.moving=false;
+        u.lx*=Math.pow(0.02,dt); u.ly*=Math.pow(0.02,dt);
+      }));
+      shake=Math.max(0,shake-dt*40); flash=Math.max(0,flash-dt*3);
+
+      if (!battleOver && !you.out) { updateDeployBar(); if (you.deployTimer<=0 && you.inv.length) renderBench(); }
+      drawAll(dt);
+      animState.raf = requestAnimationFrame(frame);
+    }
+
+    function drawAll(dt){
+      if (!ctx) return;
+      ctx.save();
+      const sx=(Math.random()-0.5)*shake, sy=(Math.random()-0.5)*shake;
+      ctx.clearRect(0,0,W,H); ctx.translate(sx,sy);
+      drawBackdropL();
+      // motes
+      for (const m of motes){ m.x+=m.vx*dt; m.y+=m.vy*dt; if(m.x<0)m.x+=W; if(m.x>W)m.x-=W; if(m.y<0)m.y+=H; if(m.y>H)m.y-=H;
+        ctx.globalAlpha=m.a; ctx.fillStyle="#cdd8ee"; ctx.beginPath(); ctx.arc(m.x,m.y,m.r,0,Math.PI*2); ctx.fill(); }
+      ctx.globalAlpha=1;
+      const tnow=(last||0)/1000;
+      // range rings under fighters
+      if (showRanges) squads.forEach(s => s.field.forEach(u => { if(u.down)return;
+        const ranged=u.range>60; ctx.save(); ctx.globalAlpha=ranged?0.16:0.10; ctx.strokeStyle=s.pal.col; ctx.lineWidth=ranged?1.5:1;
+        if(ranged&&ctx.setLineDash)ctx.setLineDash([5,5]); ctx.beginPath(); ctx.arc(u.x+u.lx,u.y+u.ly,u.range,0,Math.PI*2); ctx.stroke();
+        if(ranged){ctx.globalAlpha=0.05;ctx.fillStyle=s.pal.col;ctx.fill();} ctx.restore(); }));
+      // squad labels (name + survivors + inventory left)
+      squads.forEach(s => {
+        const alive=sqAlive(s); let sxp=0,syp=0,nn=0; s.field.forEach(u=>{ if(!u.down){sxp+=u.x;syp+=u.y;nn++;} });
+        const c=layout.squadCentre(s.pi); const cx=nn?sxp/nn:c.x, cy=nn?syp/nn:c.y;
+        const lx=clamp(cx,44,W-44), ly=clamp(cy+(cy<ARENA.cy?-30:26),14,H-6);
+        ctx.textAlign="center"; ctx.font="bold 12px sans-serif";
+        ctx.fillStyle="rgba(0,0,0,.5)"; ctx.fillText(s.you?'YOU':s.name, lx+1, ly+1);
+        ctx.fillStyle=s.pal.col; ctx.fillText(s.you?'YOU':s.name, lx, ly);
+        ctx.font="11px sans-serif"; ctx.fillStyle=s.out?"#ff6b5a":"rgba(245,245,245,.85)";
+        ctx.fillText(s.out?"eliminated":`${alive} out · ${s.inv.length} in reserve`, lx, ly+13);
+      });
+      // fighters (sorted by y)
+      squads.forEach(s => {
+        const order=s.field.map((u,i)=>i).sort((a,b)=>(s.field[a].y+s.field[a].ly)-(s.field[b].y+s.field[b].ly));
+        for (const i of order){ const u=s.field[i];
+          const gait=(!u.down&&u.moving)?Math.abs(Math.sin((u.walk||0)*0.18))*1.6:0;
+          const breathe=(u.down||u.moving)?0:Math.sin(tnow*2+u.bob)*0.5;
+          const px=u.x+u.lx, py=u.y+u.ly-gait, fade=u.down?(1-u.deadT*0.65):1;
+          ctx.globalAlpha=(u.down&&u.deadT>=1)?0.3:fade;
+          drawTopFighter(ctx, px, py, { color:s.pal.col, dark:s.pal.dark, ang:(u.hd??0), atk:u.atk, hurt:u.hurt, dead:u.down, deadT:u.deadT, weapon:u.type, scale:(u.scale||0.6)+breathe*0.01 });
+          ctx.globalAlpha=1;
+          if (!u.down){ const bw=24*((u.scale||0.6)/0.64), bh=3.5, bx=px-bw/2, by=py-20*((u.scale||0.6)/0.64);
+            ctx.fillStyle="rgba(0,0,0,.6)"; ctx.fillRect(bx-1,by-1,bw+2,bh+2);
+            const frac=clamp(u.hp/u.maxHp,0,1); ctx.fillStyle=frac>0.5?"#7dff9b":frac>0.25?"#ffd479":"#ff6b5a"; ctx.fillRect(bx,by,bw*frac,bh); }
+        }
+      });
+      // placement ghost (where your armed troop would land)
+      if (ghost && armed && inArena(ghost.x,ghost.y)) {
+        ctx.save(); ctx.globalAlpha=0.5;
+        drawTopFighter(ctx, ghost.x, ghost.y, { color:you.pal.col, dark:you.pal.dark, ang:-Math.PI/2, atk:0, hurt:0, dead:false, deadT:0, weapon:armed.type, scale:0.6 });
+        ctx.globalAlpha=0.25; ctx.strokeStyle=you.pal.col; ctx.setLineDash&&ctx.setLineDash([4,4]);
+        ctx.beginPath(); ctx.arc(ghost.x,ghost.y,armed.range||20,0,Math.PI*2); ctx.stroke(); ctx.setLineDash&&ctx.setLineDash([]);
+        ctx.restore();
+      }
+      // projectiles
+      for (let i=projectiles.length-1;i>=0;i--){ const pr=projectiles[i]; pr.p+=dt*2.6;
+        const px=pr.x+(pr.tx-pr.x)*clamp(pr.p,0,1), py=pr.y+(pr.ty-pr.y)*clamp(pr.p,0,1);
+        if (pr.p>=1){ if(pr.onHit)pr.onHit(); projectiles.splice(i,1); continue; }
+        if (pr.kind==="arrow"){ const ang=Math.atan2(pr.ty-pr.y,pr.tx-pr.x); ctx.save(); ctx.translate(px,py); ctx.rotate(ang);
+          ctx.strokeStyle=pr.col; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(-7,0); ctx.lineTo(7,0); ctx.stroke();
+          ctx.fillStyle="#fff"; ctx.beginPath(); ctx.moveTo(7,0); ctx.lineTo(3,-2); ctx.lineTo(3,2); ctx.closePath(); ctx.fill(); ctx.restore(); }
+        else { const gg=ctx.createRadialGradient(px,py,0,px,py,7); gg.addColorStop(0,"#fff"); gg.addColorStop(1,pr.col);
+          ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(px,py,5,0,Math.PI*2); ctx.fill(); } }
+      // sparks
+      for (let i=sparks.length-1;i>=0;i--){ const s=sparks[i]; s.t-=dt*2; s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=260*dt;
+        if(s.t<=0){sparks.splice(i,1);continue;} ctx.globalAlpha=clamp(s.t,0,1); ctx.fillStyle=s.col; ctx.fillRect(s.x,s.y,3,3); ctx.globalAlpha=1; }
+      if (flash>0){ ctx.globalAlpha=flash*0.4; ctx.fillStyle="#fff"; ctx.fillRect(-20,-20,W+40,H+40); ctx.globalAlpha=1; }
+      // floating text
+      for (let i=hits.length-1;i>=0;i--){ const h=hits[i]; h.t-=dt*(h.big?0.85:1.0); h.y-=dt*(h.big?20:30);
+        if(h.t<=0){hits.splice(i,1);continue;} ctx.globalAlpha=clamp(h.t,0,1);
+        ctx.font=`bold ${h.big?16:22}px sans-serif`; ctx.textAlign="center";
+        ctx.fillStyle="rgba(0,0,0,.5)"; ctx.fillText(h.v,h.x+1,h.y+1); ctx.fillStyle=h.col; ctx.fillText(h.v,h.x,h.y); ctx.globalAlpha=1; }
+      // vignette
+      const vg=ctx.createRadialGradient(W/2,H*0.5,H*0.30,W/2,H*0.5,H*0.95); vg.addColorStop(0,"rgba(0,0,0,0)"); vg.addColorStop(1,"rgba(0,0,0,.45)");
+      ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+      ctx.restore();
+    }
+
+    // seed the first render + UI
+    renderBench(); updateDeployBar();
+    if (!ctx) {
+      // headless (tests/diagnostics): no rAF canvas. Deploy every troop at once,
+      // then tick to a finish with a hard cap. Fast + bounded.
+      squads.forEach(s => { while (s.inv.length) aiDeploy(s); });
+      let guard = 0;
+      while (living().length > 1 && guard++ < 3000) {
+        tickSim();
+        squads.forEach(s => { if (!s.out && isOut(s)) { s.out = true; eliminationOrder.push(s); } });
+      }
+      // any squad still not flagged out but with no field units → out now
+      squads.forEach(s => { if (!s.out && isOut(s)) { s.out = true; eliminationOrder.push(s); } });
+      finishLive(); return;
+    }
+    if (animState.raf) cancelAnimationFrame(animState.raf);
+    animState.raf = requestAnimationFrame(frame);
   }
 
   // ----- canvas fight animation -----
@@ -2035,9 +2491,18 @@
 
       <h4>EACH ROUND</h4>
       <ol>
-        <li><b>Auction</b> — ${UNITS_PER_ROUND} units are sold one at a time at a live timed auction.</li>
-        <li><b>Battle royale</b> — all 4 squads fight at once; last squad standing wins. Placement scores ${MAX_ROUNDS===3?"3/2/1/0":"points"} (1st→last).</li>
+        <li><b>Auction</b> — ${UNITS_PER_ROUND} units are sold one at a time at a live timed auction. What you win is your squad for the battle.</li>
+        <li><b>Deploy &amp; fight</b> — you place your won troops onto the battlefield one at a time, in real time. Last army standing wins. Placement scores ${MAX_ROUNDS===3?"3/2/1/0":"points"} (1st→last).</li>
       </ol>
+
+      <h4>DEPLOYMENT — place your troops (drag &amp; drop)</h4>
+      <ul>
+        <li><span class="tag">Every ${DEPLOY_EVERY}s</span> a deploy slot opens. Pick a troop from your bench, then <b>click anywhere on the arena</b> to drop it in.</li>
+        <li><span class="tag">You choose</span> which troop goes first and exactly where it lands — hold your archers back, drop a tank up front, or flank.</li>
+        <li><span class="tag">Rivals</span> deploy one of their own troops every ${DEPLOY_EVERY}s too, so the field fills up as you fight.</li>
+        <li><span class="tag">Out</span> when a player has no troops left on the field <b>and</b> none in reserve, they are eliminated.</li>
+        <li><span class="tag">Hurry?</span> hit <b>AUTO-DEPLOY REST</b> to let the game place your remaining troops for you.</li>
+      </ul>
 
       <h4>THE TIMED AUCTION (the bluff)</h4>
       <ul>
@@ -2054,7 +2519,7 @@
       <ul>${abilRows}</ul>
 
       <h4>COMBAT</h4>
-      <div>Every unit has its own HP and attack, and all units fight independently, focusing the weakest enemy. Bigger, stronger squads win — but gold is limited, so choose your fights.</div>
+      <div>Once on the field, every unit moves and attacks on its own timer, chasing the <b>nearest</b> enemy. Archers and mages keep their distance and fire while backing away; melee charge in. Where you drop a troop matters — position, timing and synergies decide the fight.</div>
 
       <h4>UNIT RARITY</h4>
       <div>Most units are common. Watch for <b>★ Elite</b> (stronger) and the rare
