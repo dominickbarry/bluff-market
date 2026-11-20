@@ -576,6 +576,25 @@ inventory is empty AND all their placed troops are dead; last army standing wins
   and asserts each draws, terminates, and hands off to the NEXT-ROUND button. All
   5 gating suites green.
 
+## 39. Continuous (tick-independent) movement in the live battle (2026-11-19, owner: "movement should be smooth and not on a ticking timer")
+In the live deploy battle, units stepped visibly because the 18 Hz sim tick both
+moved them (in `speed*MOVE_SCALE` jumps) and decided actions, and the renderer
+only eased toward those jumpy goals. Decoupled the two:
+- **Tick (18 Hz) now only DECIDES**: pick nearest target, resolve attacks on each
+  unit's cooldown, and set a *move intent* (`u.mv` on/off, unit-direction `u.mvx,
+  u.mvy`, and `u.mvStop` = how far a melee unit may still advance before its range).
+- **`moveStep(dt)` runs EVERY FRAME** and integrates `fx,fy` continuously at
+  `u.speed * SPEED_PXPS` px/sec (`SPEED_PXPS = 5.76`, chosen so pace == the old
+  `speed*0.32*18`, keeping balance identical). Arena-clamped; melee can't overshoot.
+- **Renderer** now tracks `fx,fy` with fast exponential smoothing
+  (`k = 1 - 0.0001^dt`, ~14%/frame at 60fps) instead of a capped 150 px/s walk that
+  lagged behind the faster continuous motion. Heading + gait bob now follow the
+  actual per-frame displacement.
+- Headless resolve calls `moveStep(SIM_DT)` after each tick so combat still resolves
+  (and terminates within the 3000-tick cap).
+- Balance unchanged (~26% over 3 diag samples); all 5 gating suites green, live
+  smoke test green across all 5 squad shapes.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

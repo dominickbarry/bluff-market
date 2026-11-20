@@ -1368,6 +1368,7 @@
       u.x = u.fx; u.y = u.fy; u.hd = Math.atan2(ARENA.cy-u.fy, ARENA.cx-u.fx);
       u.cd = (u.firstStrike ? 1 : 2) + Math.floor(Math.random()*3);
       u.moveAccum = 0; u.atk = 0; u.hurt = 0; u.deadT = 0; u.walk = 0;
+      u.mv = 0; u.mvx = 0; u.mvy = 0; u.mvStop = null;   // continuous-move intent (set by tickSim)
       s.field.push(u); s.placedAny = true;
       spawnDrop(u.fx, u.fy, s.pal.col);
       SND.deploy();
@@ -1388,8 +1389,8 @@
     }
 
     // ---- live combat tick (shared math with simRoyale: nearest target, kite,
-    // close, strike with the same abilities/armor/dodge) ----
-    const MOVE_SCALE = 0.32;
+    // close, strike with the same abilities/armor/dodge). The tick DECIDES;
+    // movement is integrated continuously every frame by moveStep(dt). ----
     function pickTargetLive(att) {
       const cands = [];
       for (const s of squads) { if (s === att.s) continue;
@@ -1453,19 +1454,40 @@
         const d = dist(u.fx,u.fy,tgt.u.fx,tgt.u.fy) || 0.001;
         const ranged = (u.type==="Archer"||u.type==="Mage");
         const kiteDist = ranged ? u.range*0.6 : 0;
+        // The tick only DECIDES: set each unit's move INTENT (a unit-direction
+        // vector + whether to move) and resolve attacks. Actual position change
+        // happens every frame in moveStep(dt), so motion is smooth and fully
+        // decoupled from the tick rate.
         if (ranged && d < kiteDist) {
-          const step = Math.min(u.speed*MOVE_SCALE, kiteDist-d);
-          u.fx = clamp(u.fx + (u.fx-tgt.u.fx)/d*step, ARENA.cx-ARENA.rx+4, ARENA.cx+ARENA.rx-4);
-          u.fy = clamp(u.fy + (u.fy-tgt.u.fy)/d*step, ARENA.cy-ARENA.ry+4, ARENA.cy+ARENA.ry-4);
+          // too close → intend to back away from the target, still fire
+          u.mvx = (u.fx-tgt.u.fx)/d; u.mvy = (u.fy-tgt.u.fy)/d; u.mv = 1;
           if (u.cd<=0){ strikeLive(act.s,u,tgt); u.cd=COOLDOWN[u.type]||6; }
         } else if (d <= u.range) {
+          // in range → hold position, attack on cooldown
+          u.mv = 0;
           if (u.cd<=0){ strikeLive(act.s,u,tgt); u.cd=COOLDOWN[u.type]||6; }
         } else {
-          const step = Math.min(u.speed*MOVE_SCALE, d-u.range+1);
-          u.fx += (tgt.u.fx-u.fx)/d*step; u.fy += (tgt.u.fy-u.fy)/d*step;
+          // out of range → intend to close on the target
+          u.mvx = (tgt.u.fx-u.fx)/d; u.mvy = (tgt.u.fy-u.fy)/d; u.mv = 1;
         }
+        u.mvStop = ranged ? 0 : Math.max(0, d - u.range);  // how far it may still advance (melee stop at range edge)
         if (u.cd>0) u.cd--;
       }
+    }
+
+    // CONTINUOUS movement: integrate every frame at the unit's own speed in
+    // px/sec, along the intent the last tick set. This is what makes motion
+    // smooth rather than stepping on the 18 Hz tick.
+    const SPEED_PXPS = 5.76;   // preserves the old pace (speed * MOVE_SCALE[0.32] * SIM_HZ[18])
+    function moveStep(dt) {
+      squads.forEach(s => { if (s.out) return; s.field.forEach(u => {
+        if (u.hp<=0 || !u.mv) return;
+        let step = u.speed * SPEED_PXPS * dt;
+        if (u.mvStop != null) step = Math.min(step, u.mvStop + 1);  // don't overshoot into/through the target
+        if (step <= 0) return;
+        u.fx = clamp(u.fx + (u.mvx||0)*step, ARENA.cx-ARENA.rx+4, ARENA.cx+ARENA.rx-4);
+        u.fy = clamp(u.fy + (u.mvy||0)*step, ARENA.cy-ARENA.ry+4, ARENA.cy+ARENA.ry-4);
+      }); });
     }
 
     // ---- shared render helpers (local, reuse the look of animateRoyale) ----
@@ -1613,10 +1635,12 @@
         // reset the "ready" ping latch after a deploy consumed the slot
         squads.forEach(s=>{ if (s.deployTimer>0) s._readyPinged=false; });
 
-        // step the sim at a fixed rate
+        // step the sim at a fixed rate (DECISIONS: targeting, attacks, intent)
         simAccum += dt;
         let guard = 0;
         while (simAccum >= SIM_DT && guard++ < 6) { tickSim(); simAccum -= SIM_DT; }
+        // MOVE continuously every frame (smooth, tick-independent)
+        moveStep(dt);
 
         // promote death fades + check for a winner
         squads.forEach(s => s.field.forEach(u => { if (u.down && u.deadT<1) u.deadT=Math.min(1,u.deadT+dt*2.2); }));
@@ -1644,12 +1668,19 @@
         if (endHold <= 0) { drawAll(dt); finishLive(); return; }
       }
 
-      // per-frame unit visuals: ease live pos toward sim pos, decay fx
+      // per-frame unit visuals. fx,fy now move SMOOTHLY and continuously
+      // (moveStep every frame), so the rendered x,y just closely tracks them
+      // with light exponential smoothing (filters any jitter, no rubber-band
+      // lag). Heading eases toward travel direction; gait bob follows distance.
       squads.forEach(s => s.field.forEach(u => {
         u.atk = Math.max(0, (u.atk||0)-dt*3.2);
         u.hurt = Math.max(0, (u.hurt||0)-dt*3.5);
-        const dx=u.fx-u.x, dy=u.fy-u.y, dd=Math.hypot(dx,dy);
-        if (dd>0.5){ const WALK=150, sl=Math.min(dd,WALK*dt); u.x+=dx/dd*sl; u.y+=dy/dd*sl; u.walk=(u.walk||0)+sl;
+        const px=u.x, py=u.y;
+        const k = 1 - Math.pow(0.0001, dt);   // fast smoothing: ~tracks fx,fy within a frame or two
+        u.x += (u.fx - u.x) * k;
+        u.y += (u.fy - u.y) * k;
+        const dx=u.x-px, dy=u.y-py, moved=Math.hypot(dx,dy);
+        if (moved > 0.05){ u.walk=(u.walk||0)+moved;
           const want=Math.atan2(dy,dx); let df=want-(u.hd??want); while(df>Math.PI)df-=Math.PI*2; while(df<-Math.PI)df+=Math.PI*2; u.hd=(u.hd??want)+df*Math.min(1,dt*10); u.moving=true; }
         else u.moving=false;
         u.lx*=Math.pow(0.02,dt); u.ly*=Math.pow(0.02,dt);
@@ -1744,6 +1775,7 @@
       let guard = 0;
       while (living().length > 1 && guard++ < 3000) {
         tickSim();
+        moveStep(SIM_DT);   // advance continuous movement one tick's worth (matches on-screen pace)
         squads.forEach(s => { if (!s.out && isOut(s)) { s.out = true; eliminationOrder.push(s); } });
       }
       // any squad still not flagged out but with no field units → out now
