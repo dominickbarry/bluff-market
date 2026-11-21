@@ -1679,8 +1679,17 @@
           const gait=(!u.down&&u.moving)?Math.abs(Math.sin((u.walk||0)*0.18))*1.6:0;
           const breathe=(u.down||u.moving)?0:Math.sin(tnow*2+u.bob)*0.5;
           const px=u.x+u.lx, py=u.y+u.ly-gait, fade=u.down?(1-u.deadT*0.65):1;
+          const sc=(u.scale||0.6);
+          // thin TEAM-COLOUR ring on the ground under the token, so squads read
+          // clearly by colour at a glance. Drawn first → sits beneath the unit.
+          ctx.save();
+          ctx.globalAlpha=((u.down&&u.deadT>=1)?0.3:fade)*0.9;
+          ctx.strokeStyle=s.pal.col; ctx.lineWidth=2;
+          ctx.beginPath(); ctx.ellipse(u.x+u.lx, u.y+u.ly, 13*(sc/0.64), 7*(sc/0.64), 0, 0, Math.PI*2); ctx.stroke();
+          ctx.globalAlpha*=0.25; ctx.fillStyle=s.pal.col; ctx.fill();   // faint colour wash inside the ring
+          ctx.restore();
           ctx.globalAlpha=(u.down&&u.deadT>=1)?0.3:fade;
-          drawTopFighter(ctx, px, py, { color:s.pal.col, dark:s.pal.dark, ang:(u.hd??0), atk:u.atk, hurt:u.hurt, dead:u.down, deadT:u.deadT, weapon:u.type, scale:(u.scale||0.6)+breathe*0.01 });
+          drawTopFighter(ctx, px, py, { color:s.pal.col, dark:s.pal.dark, ang:(u.hd??0), atk:u.atk, hurt:u.hurt, dead:u.down, deadT:u.deadT, weapon:u.type, scale:sc+breathe*0.01 });
           ctx.globalAlpha=1;
           if (!u.down){ const bw=24*((u.scale||0.6)/0.64), bh=3.5, bx=px-bw/2, by=py-20*((u.scale||0.6)/0.64);
             ctx.fillStyle="rgba(0,0,0,.6)"; ctx.fillRect(bx-1,by-1,bw+2,bh+2);

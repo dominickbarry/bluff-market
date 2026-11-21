@@ -647,6 +647,13 @@ Owner asked for three things, plus a mid-turn steer to also cut the visual FX:
 - All 5 gating suites green; live smoke test green (battles still terminate with
   off-field deaths in play).
 
+## 42. Team-colour ground ring under each unit (2026-11-20, owner)
+Added a thin squad-colour ellipse on the ground beneath each field unit (drawn
+before the token so it sits under it), with a faint colour wash inside. Makes
+teams read at a glance now that units carry no text labels (see #41). Ring is
+pinned to the unit's ground position (not the gait/lunge-lifted body) and fades
+with the unit on death. Render-only; all 5 gating suites green.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,
