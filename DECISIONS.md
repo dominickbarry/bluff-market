@@ -627,6 +627,33 @@ Owner asked for three things, plus a mid-turn steer to also cut the visual FX:
   live loop; faithfully simulating native HTML5 DnD headlessly isn't practical, so
   the DnD gesture itself wants a real-browser check.
 
+## 41. Colour-only field ID, ranged stop-at-range, off-field death (2026-11-19, owner + two steers)
+- **On-field identity by COLOUR only.** Removed the per-squad on-field text labels
+  (the "YOU"/"P1" name + "N out · M in reserve" / "eliminated" line that followed
+  each cluster). Units are now told apart purely by squad colour (you = green;
+  rivals blue / red / gold). Survivor/elimination info still reads from the kill
+  feed and per-unit HP bars. (The top `vsLine` colour legend stays.)
+- **Ranged units stop advancing once a target is in range** (steer). Fixed the
+  move-intent: a unit out of range now advances only up to its range edge
+  (`mvStop = d - u.range`) for ranged AND melee, and holds (`mv=0`) the moment a
+  target is within range. Previously ranged units had `mvStop=0` when out of range
+  (couldn't close) — now corrected.
+- **Leaving the battlefield is lethal** (steer). `moveStep` no longer clamps units
+  inside the arena; a unit whose position leaves the floor (`!inArena`) is killed.
+  `deployUnit` now pulls a rim/corner drop inward until it's on the floor so no one
+  dies instantly on placement.
+- **Balance:** these combat changes dropped auto-play win rate to ~19%; raised
+  START_GOLD 104→126 to restore ~26% (5-sample avg), back in the 25-30% band.
+- All 5 gating suites green; live smoke test green (battles still terminate with
+  off-field deaths in play).
+
+## 42. Team-colour ground ring under each unit (2026-11-20, owner)
+Added a thin squad-colour ellipse on the ground beneath each field unit (drawn
+before the token so it sits under it), with a faint colour wash inside. Makes
+teams read at a glance now that units carry no text labels (see #41). Ring is
+pinned to the unit's ground position (not the gait/lunge-lifted body) and fades
+with the unit on death. Render-only; all 5 gating suites green.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

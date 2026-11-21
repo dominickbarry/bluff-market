@@ -351,7 +351,7 @@
   let round = 1;
   const MAX_ROUNDS = 3;
   const UNITS_PER_ROUND = 8;    // kept at 8 — enough for synergies with 4 buyers, without dragging the timed auction
-  const START_GOLD = 104;       // live deploy mode: a bigger squad snowballs harder (gradual arrivals focus-fire), so auto-play win rate ran ~48%. Trimmed gold so headless auto-play sits ~24%, leaving room for human placement skill to reach ~30-40%.
+  const START_GOLD = 126;       // live deploy mode. Ability removal + ranged-stop-at-range + off-field deaths dropped auto-play win rate to ~19%; raised gold to pull it back toward the ~27% mid of the fair 25-30% band. (Headless auto-play is skill-free, so it's roughly a floor — a human placing troops does better.)
   const CHAOS = 0.12;           // free-for-all target randomness (0=nearest,1=random). Lowered from 0.25: positional range+movement now adds its own variance, so less explicit RNG is needed and strong squads stay favoured.
   // per-type attack cooldown in ticks (lower = attacks more often). Module-scope
   // so BOTH the offline sim (simRoyale) and the live deploy battle use the same values.
@@ -1314,8 +1314,13 @@
     function deployUnit(s, u, fx, fy) {
       const i = s.inv.indexOf(u); if (i < 0) return;
       s.inv.splice(i, 1);
-      u.fx = clamp(fx, ARENA.cx-ARENA.rx+6, ARENA.cx+ARENA.rx-6);
-      u.fy = clamp(fy, ARENA.cy-ARENA.ry+6, ARENA.cy+ARENA.ry-6);
+      // keep the drop point INSIDE the floor (units off the field die now), so a
+      // rim/corner placement is pulled toward centre until it's on the arena.
+      let px = clamp(fx, ARENA.cx-ARENA.rx+6, ARENA.cx+ARENA.rx-6);
+      let py = clamp(fy, ARENA.cy-ARENA.ry+6, ARENA.cy+ARENA.ry-6);
+      let guard = 0;
+      while (!inArena(px, py) && guard++ < 24) { px += (ARENA.cx-px)*0.12; py += (ARENA.cy-py)*0.12; }
+      u.fx = px; u.fy = py;
       u.x = u.fx; u.y = u.fy; u.hd = Math.atan2(ARENA.cy-u.fy, ARENA.cx-u.fx);
       u.cd = (u.firstStrike ? 1 : 2) + Math.floor(Math.random()*3);
       u.moveAccum = 0; u.atk = 0; u.hurt = 0; u.deadT = 0; u.walk = 0;
@@ -1402,18 +1407,21 @@
         // happens every frame in moveStep(dt), so motion is smooth and fully
         // decoupled from the tick rate.
         if (ranged && d < kiteDist) {
-          // too close → intend to back away from the target, still fire
+          // too close → back away from the target (kite), still fire
           u.mvx = (u.fx-tgt.u.fx)/d; u.mvy = (u.fy-tgt.u.fy)/d; u.mv = 1;
+          u.mvStop = null;   // retreating; no advance cap
           if (u.cd<=0){ strikeLive(act.s,u,tgt); u.cd=COOLDOWN[u.type]||6; }
         } else if (d <= u.range) {
-          // in range → hold position, attack on cooldown
+          // in range → STOP advancing and hold, attack on cooldown. (Applies to
+          // ranged and melee alike: once a target is in range, don't close further.)
           u.mv = 0;
           if (u.cd<=0){ strikeLive(act.s,u,tgt); u.cd=COOLDOWN[u.type]||6; }
         } else {
-          // out of range → intend to close on the target
+          // out of range → close on the target, but only up to the range edge,
+          // so a ranged unit halts the instant the target enters its range.
           u.mvx = (tgt.u.fx-u.fx)/d; u.mvy = (tgt.u.fy-u.fy)/d; u.mv = 1;
+          u.mvStop = Math.max(0, d - u.range);
         }
-        u.mvStop = ranged ? 0 : Math.max(0, d - u.range);  // how far it may still advance (melee stop at range edge)
         if (u.cd>0) u.cd--;
       }
     }
@@ -1428,8 +1436,11 @@
         let step = u.speed * SPEED_PXPS * dt;
         if (u.mvStop != null) step = Math.min(step, u.mvStop + 1);  // don't overshoot into/through the target
         if (step <= 0) return;
-        u.fx = clamp(u.fx + (u.mvx||0)*step, ARENA.cx-ARENA.rx+4, ARENA.cx+ARENA.rx-4);
-        u.fy = clamp(u.fy + (u.mvy||0)*step, ARENA.cy-ARENA.ry+4, ARENA.cy+ARENA.ry-4);
+        // Move freely — NO arena clamp. Any unit that walks off the battlefield
+        // dies (a kiter backed into a corner can retreat off the edge and perish).
+        u.fx += (u.mvx||0)*step;
+        u.fy += (u.mvy||0)*step;
+        if (!inArena(u.fx, u.fy)) killUnit(s, u);
       }); });
     }
 
@@ -1658,17 +1669,9 @@
         const ranged=u.range>60; ctx.save(); ctx.globalAlpha=ranged?0.16:0.10; ctx.strokeStyle=s.pal.col; ctx.lineWidth=ranged?1.5:1;
         if(ranged&&ctx.setLineDash)ctx.setLineDash([5,5]); ctx.beginPath(); ctx.arc(u.x+u.lx,u.y+u.ly,u.range,0,Math.PI*2); ctx.stroke();
         if(ranged){ctx.globalAlpha=0.05;ctx.fillStyle=s.pal.col;ctx.fill();} ctx.restore(); }));
-      // squad labels (name + survivors + inventory left)
-      squads.forEach(s => {
-        const alive=sqAlive(s); let sxp=0,syp=0,nn=0; s.field.forEach(u=>{ if(!u.down){sxp+=u.x;syp+=u.y;nn++;} });
-        const c=layout.squadCentre(s.pi); const cx=nn?sxp/nn:c.x, cy=nn?syp/nn:c.y;
-        const lx=clamp(cx,44,W-44), ly=clamp(cy+(cy<ARENA.cy?-30:26),14,H-6);
-        ctx.textAlign="center"; ctx.font="bold 12px sans-serif";
-        ctx.fillStyle="rgba(0,0,0,.5)"; ctx.fillText(s.you?'YOU':s.name, lx+1, ly+1);
-        ctx.fillStyle=s.pal.col; ctx.fillText(s.you?'YOU':s.name, lx, ly);
-        ctx.font="11px sans-serif"; ctx.fillStyle=s.out?"#ff6b5a":"rgba(245,245,245,.85)";
-        ctx.fillText(s.out?"eliminated":`${alive} out · ${s.inv.length} in reserve`, lx, ly+13);
-      });
+      // No on-field squad labels: units are identified purely by their squad
+      // COLOUR (you = green; rivals blue / red / gold). Survivor counts and
+      // eliminations are read from the kill feed and the per-unit HP bars.
       // fighters (sorted by y)
       squads.forEach(s => {
         const order=s.field.map((u,i)=>i).sort((a,b)=>(s.field[a].y+s.field[a].ly)-(s.field[b].y+s.field[b].ly));
@@ -1676,8 +1679,17 @@
           const gait=(!u.down&&u.moving)?Math.abs(Math.sin((u.walk||0)*0.18))*1.6:0;
           const breathe=(u.down||u.moving)?0:Math.sin(tnow*2+u.bob)*0.5;
           const px=u.x+u.lx, py=u.y+u.ly-gait, fade=u.down?(1-u.deadT*0.65):1;
+          const sc=(u.scale||0.6);
+          // thin TEAM-COLOUR ring on the ground under the token, so squads read
+          // clearly by colour at a glance. Drawn first → sits beneath the unit.
+          ctx.save();
+          ctx.globalAlpha=((u.down&&u.deadT>=1)?0.3:fade)*0.9;
+          ctx.strokeStyle=s.pal.col; ctx.lineWidth=2;
+          ctx.beginPath(); ctx.ellipse(u.x+u.lx, u.y+u.ly, 13*(sc/0.64), 7*(sc/0.64), 0, 0, Math.PI*2); ctx.stroke();
+          ctx.globalAlpha*=0.25; ctx.fillStyle=s.pal.col; ctx.fill();   // faint colour wash inside the ring
+          ctx.restore();
           ctx.globalAlpha=(u.down&&u.deadT>=1)?0.3:fade;
-          drawTopFighter(ctx, px, py, { color:s.pal.col, dark:s.pal.dark, ang:(u.hd??0), atk:u.atk, hurt:u.hurt, dead:u.down, deadT:u.deadT, weapon:u.type, scale:(u.scale||0.6)+breathe*0.01 });
+          drawTopFighter(ctx, px, py, { color:s.pal.col, dark:s.pal.dark, ang:(u.hd??0), atk:u.atk, hurt:u.hurt, dead:u.down, deadT:u.deadT, weapon:u.type, scale:sc+breathe*0.01 });
           ctx.globalAlpha=1;
           if (!u.down){ const bw=24*((u.scale||0.6)/0.64), bh=3.5, bx=px-bw/2, by=py-20*((u.scale||0.6)/0.64);
             ctx.fillStyle="rgba(0,0,0,.6)"; ctx.fillRect(bx-1,by-1,bw+2,bh+2);
