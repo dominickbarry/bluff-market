@@ -654,6 +654,28 @@ teams read at a glance now that units carry no text labels (see #41). Ring is
 pinned to the unit's ground position (not the gait/lunge-lifted body) and fades
 with the unit on death. Render-only; all 5 gating suites green.
 
+## 43. Slower movement + a dev TEST PANEL for live metric tuning (2026-11-20, owner + steer)
+- **Slower movement** (owner: "characters move too fast"). `SPEED_PXPS` 5.76→3.2
+  (now `TUNING.global.speedPxps`). Rogue ~166px/s, most ~134, Beast ~109 across the
+  640px arena — a much more watchable pace. Balance held ~26% (5-sample avg), so
+  START_GOLD stayed 126.
+- **Live-tuning refactor.** Introduced a single mutable `TUNING` object holding
+  every balance number: per-type {hpLo,hpHi,atkLo,atkHi, range, speed, cooldown}
+  and globals {startGold, deployEvery, speedPxps, fightCap, chaos}, seeded from the
+  old hardcoded values (DEFAULT_TUNING is a frozen copy). All combat code now reads
+  from TUNING (makeUnit via statProfileFor, buildUnits range/speed, cooldownFor,
+  and the former top-level consts START_GOLD/CHAOS/DEPLOY_EVERY/SPEED_PXPS/FIGHT_CAP
+  were removed and their uses repointed at TUNING.global.*). Defaults equal the old
+  values, so behaviour is unchanged until something is edited.
+- **TEST PANEL** (steer: "a section to modify all the metrics of each character so
+  I can test"). New 🔧 TEST PANEL button on the intro → a screen with number inputs
+  for every per-type metric and every global knob. Apply writes back into TUNING
+  (next battle uses them); Reset restores defaults. Not persisted across reloads
+  (intentional — it's a test tool). Guarded by new gated suite `test-tuning.js`,
+  which proves editing TUNING flows into buildUnits (range/speed) and makeUnit
+  (HP/ATK roll range).
+- All 6 gating suites green.
+
 ## Status (updated 2026-11-17, after timed-auction + battle-animation changes)
 - Game is **built, syntax-validated, and fully tested** after both changes.
 - **Logic tests** (`test-harness.js`): 17 checks pass — unit validity, AI bid bounds,

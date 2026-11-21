@@ -4,7 +4,7 @@
 // win-rate numbers, no hard pass/fail), so it's run but not gated.
 const { spawnSync } = require("child_process");
 
-const gating = ["test-harness.js", "test-anim.js", "test-flow.js", "test-live.js", "test-stats.js"];
+const gating = ["test-harness.js", "test-anim.js", "test-flow.js", "test-live.js", "test-tuning.js", "test-stats.js"];
 const informational = ["test-diag.js"];
 
 let failed = 0;
