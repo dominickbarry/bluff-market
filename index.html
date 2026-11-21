@@ -223,6 +223,19 @@
     color: #cdd8ee; border: 1px solid #46598a; border-radius: 8px;
     cursor: grab; box-shadow: none; min-width: 64px; }
   .troop:active { cursor: grabbing; }
+  /* dev test panel */
+  .test-hint { font-size: 12px; opacity: .75; max-width: 620px; margin: 4px auto 10px; line-height: 1.5; }
+  .test-msg { font-size: 12px; color: #7dff9b; min-height: 16px; margin-top: 8px; }
+  .testpanel { max-width: 640px; max-height: 400px; overflow-y: auto; text-align: left; padding: 2px 8px; }
+  .testpanel h4 { color: #ffd479; font-size: 13px; letter-spacing: 1px; margin: 12px 0 6px; border-bottom: 1px solid #3a4a6b; padding-bottom: 3px; }
+  .testpanel h4:first-child { margin-top: 0; }
+  .tp-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+  .tp-row .tp-name { min-width: 64px; font-weight: bold; font-size: 12px; }
+  .tp-field { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; opacity: .9; }
+  .tp-field label { opacity: .7; }
+  .testpanel input[type="number"] { width: 50px; font-size: 12px; padding: 2px 4px; background: #11182b;
+    color: #eef; border: 1px solid #46598a; border-radius: 5px; text-align: right; }
+  .testpanel input:focus { outline: none; border-color: #ffd479; }
   .troop span { font-size: 10px; opacity: .72; }
   .troop:hover:not(:disabled) { border-color: #ffd479; }
   .troop.armed { background: linear-gradient(#ffd479,#e6a021); color: #2a1600; border-color: #a86e00; transform: translateY(-2px); }
@@ -256,7 +269,10 @@
         <button id="btnHowTo" type="button" class="alt">HOW TO PLAY</button>
         <button id="btnMute" type="button" class="alt" title="Toggle sound">🔊 SOUND</button>
       </div>
-      <button id="btnQuick" type="button" class="alt quick" title="Skip the auction — watch a battle with random squads">⚡ QUICK BATTLE (test)</button>
+      <div class="menu-row">
+        <button id="btnQuick" type="button" class="alt quick" title="Skip the auction — watch a battle with random squads">⚡ QUICK BATTLE (test)</button>
+        <button id="btnTest" type="button" class="alt quick" title="Edit every unit's metrics for testing">🔧 TEST PANEL</button>
+      </div>
       <div class="hint">Tip: rivals can see what you <i>won</i> and what you <i>paid</i> &mdash; but never how much gold you have left. Use that.</div>
       <div class="stats-line" id="statsLine"></div>
     </div>
@@ -266,6 +282,19 @@
       <div class="big" style="font-size:30px">HOW TO PLAY</div>
       <div id="howToBody" class="howto"></div>
       <button id="btnHowToBack" type="button">BACK</button>
+    </div>
+
+    <!-- TEST PANEL (edit every unit metric + global knobs) -->
+    <div id="scrTest" class="center hidden">
+      <div class="big" style="font-size:30px">🔧 TEST PANEL</div>
+      <div class="test-hint">Edit any value, then <b>Apply</b> — changes take effect next battle. These are for testing balance; <b>Reset</b> restores defaults. (Not saved between reloads.)</div>
+      <div id="testBody" class="testpanel"></div>
+      <div class="menu-row" style="margin-top:12px">
+        <button id="btnTestApply" type="button">APPLY</button>
+        <button id="btnTestReset" type="button" class="alt">RESET DEFAULTS</button>
+        <button id="btnTestBack" type="button" class="alt">BACK</button>
+      </div>
+      <div id="testMsg" class="test-msg"></div>
     </div>
 
     <!-- GAME -->
@@ -351,8 +380,6 @@
   let round = 1;
   const MAX_ROUNDS = 3;
   const UNITS_PER_ROUND = 8;    // kept at 8 — enough for synergies with 4 buyers, without dragging the timed auction
-  const START_GOLD = 126;       // live deploy mode. Ability removal + ranged-stop-at-range + off-field deaths dropped auto-play win rate to ~19%; raised gold to pull it back toward the ~27% mid of the fair 25-30% band. (Headless auto-play is skill-free, so it's roughly a floor — a human placing troops does better.)
-  const CHAOS = 0.12;           // free-for-all target randomness (0=nearest,1=random). Lowered from 0.25: positional range+movement now adds its own variance, so less explicit RNG is needed and strong squads stay favoured.
   // per-type attack cooldown in ticks (lower = attacks more often). Module-scope
   // so BOTH the offline sim (simRoyale) and the live deploy battle use the same values.
   const COOLDOWN = { Rogue: 4, Archer: 5, Mage: 6, Warrior: 6, Beast: 7 };
@@ -463,7 +490,7 @@
   function newGame() {
     testMode = false;
     const d = diff();
-    const youGold = Math.round(START_GOLD * d.youGold);
+    const youGold = Math.round(TUNING.global.startGold * d.youGold);
     const shuffledNames = [...NAMES].sort(() => Math.random() - 0.5);
     players = [
       { id: 0, name: "You", you: true, gold: youGold, squad: [], wins: 0, points: 0, persona: null }
@@ -471,10 +498,10 @@
     const personaPool = [...PERSONAS].sort(() => Math.random() - 0.5);
     for (let i = 1; i <= 3; i++) {
       players.push({
-        id: i, name: shuffledNames[i - 1], you: false, gold: START_GOLD,
+        id: i, name: shuffledNames[i - 1], you: false, gold: TUNING.global.startGold,
         squad: [], wins: 0, points: 0,
         persona: personaPool[(i - 1) % personaPool.length],
-        apparentGold: START_GOLD
+        apparentGold: TUNING.global.startGold
       });
     }
     round = 1;
@@ -490,13 +517,40 @@
     Mage:    [10, 20,  8, 16],   // glass cannon
     Rogue:   [12, 22,  7, 14]    // fast, fragile, hits hard
   };
+
+  // ---------- LIVE TUNING (dev/test panel) ----------
+  // Every number the dev test panel can edit lives here, seeded from the real
+  // defaults so behaviour is identical until something is changed. All combat
+  // code reads from TUNING (not hardcoded literals), so edits take effect on the
+  // next battle. DEFAULT_TUNING is a frozen copy used by the panel's Reset.
+  const TUNING = {
+    perType: {
+      // hpLo,hpHi,atkLo,atkHi (HP/ATK roll range), plus range, speed, cooldown
+      Warrior: { hpLo:20, hpHi:34, atkLo:4,  atkHi:10, range:12, speed:42, cooldown:6 },
+      Beast:   { hpLo:24, hpHi:40, atkLo:5,  atkHi:12, range:12, speed:34, cooldown:7 },
+      Archer:  { hpLo:12, hpHi:24, atkLo:6,  atkHi:13, range:55, speed:42, cooldown:5 },
+      Mage:    { hpLo:10, hpHi:20, atkLo:8,  atkHi:16, range:42, speed:42, cooldown:6 },
+      Rogue:   { hpLo:12, hpHi:22, atkLo:7,  atkHi:14, range:12, speed:52, cooldown:4 },
+    },
+    global: {
+      startGold: 126,     // gold each player starts a round with
+      deployEvery: 5,     // seconds between a player's deploy slots
+      speedPxps: 3.2,     // movement px/sec per unit of `speed`
+      fightCap: 45,       // seconds before a stalemate is force-resolved
+      chaos: 0.12,        // 0 = always nearest target, 1 = always random
+    },
+  };
+  const DEFAULT_TUNING = JSON.parse(JSON.stringify(TUNING));
+  // keep the stat-profile array view in sync with TUNING (makeUnit reads this)
+  function statProfileFor(type){ const t=TUNING.perType[type]; return [t.hpLo, t.hpHi, t.atkLo, t.atkHi]; }
+  function cooldownFor(type){ const t=TUNING.perType[type]; return (t && t.cooldown) || 6; }
   function makeUnit() {
     const type = pick(TYPES);
     // tier roll: ~5% legendary (monster), else ~20% elite, else common
     const r = Math.random();
     const tier = r < 0.05 ? "legendary" : r < 0.25 ? "elite" : "common";
     const mult = tier === "legendary" ? 2.2 : tier === "elite" ? 1.6 : 1;
-    const [hLo, hHi, aLo, aHi] = STAT_PROFILE[type];
+    const [hLo, hHi, aLo, aHi] = statProfileFor(type);
     return {
       name: pick(NAMES),
       type,
@@ -906,10 +960,10 @@
     const archerShots = archN >= 1 ? synergyEffect("Archer", archN) : 1;  // shots per archer
     return p.squad.map(u => {
       const maxHp = Math.max(1, Math.round(u.hp * hpMul));
-      // attack range (px, arena space) — TIGHT so units chase and the field
-      // stays in motion; ranged keep a kite distance (see simRoyale).
-      const range = (u.type === "Archer") ? 55 : (u.type === "Mage") ? 42 : 12;
-      const speed = (u.type === "Rogue") ? 52 : (u.type === "Beast") ? 34 : 42;  // a bit faster overall → more visible movement
+      // attack range + move speed come from TUNING (dev panel can edit them).
+      const tune = TUNING.perType[u.type] || TUNING.perType.Warrior;
+      const range = tune.range;
+      const speed = tune.speed;
       return {
         type: u.type, tier: u.tier,
         hp: maxHp, maxHp,
@@ -1104,7 +1158,7 @@
     log.push({ cls:"head", text: `Battle royale: ${squads.map(s=>`${s.name} (${sqAlive(s)}u)`).join(" vs ")}` });
 
     // Target the CLOSEST living enemy unit from any OTHER squad (by field
-    // distance). CHAOS keeps its meaning: a small chance to pick a random enemy
+    // distance). TUNING.global.chaos keeps its meaning: a small chance to pick a random enemy
     // instead of the nearest, so the free-for-all still scatters a bit.
     function pickTarget(attackerSquad, from) {
       const cands = [];
@@ -1115,7 +1169,7 @@
         }
       }
       if (!cands.length) return null;
-      if (Math.random() < CHAOS) return cands[Math.floor(Math.random() * cands.length)];
+      if (Math.random() < TUNING.global.chaos) return cands[Math.floor(Math.random() * cands.length)];
       let best = null, bestD = Infinity;
       for (const c of cands) {
         const d = dist(from.fx, from.fy, c.u.fx, c.u.fy);
@@ -1196,12 +1250,12 @@
           u.fx = clamp(nx, ARENA_W*0.06, ARENA_W*0.94);
           u.fy = clamp(ny, ARENA_H*0.10, ARENA_H*0.92);
           moved = true;
-          if (u.cd <= 0) { strike(act.s, u, act.ui, false, tgt); u.cd = COOLDOWN[u.type] || 6; checkElims(); }
+          if (u.cd <= 0) { strike(act.s, u, act.ui, false, tgt); u.cd = cooldownFor(u.type); checkElims(); }
         } else if (d <= u.range) {
           // in range: attack when this unit's own cooldown is ready
           if (u.cd <= 0) {
             strike(act.s, u, act.ui, false, tgt);
-            u.cd = COOLDOWN[u.type] || 6;
+            u.cd = cooldownFor(u.type);
             checkElims();
           }
         } else {
@@ -1235,7 +1289,7 @@
   let royale = null;      // { events, placement }
 
   // Battle phase = LIVE DRAG-AND-DROP DEPLOYMENT. Each player's won squad is an
-  // INVENTORY (not yet on the field). Every DEPLOY_EVERY seconds each player may
+  // INVENTORY (not yet on the field). Every TUNING.global.deployEvery seconds each player may
   // place one troop: YOU drag/click one of yours anywhere onto the arena; the
   // AIs auto-pick and auto-place on their side. Placed troops fight in real time
   // (same per-unit combat + kiting as simRoyale). A player is OUT when their
@@ -1270,8 +1324,6 @@
     rb.addEventListener("click", () => { showRanges = !showRanges; try { localStorage.setItem("bluffMarket.ranges", showRanges ? "1" : "0"); } catch (e) {} setRangesLabel(); });
     startLiveBattle();
   }
-
-  const DEPLOY_EVERY = 5;          // seconds between a player's deploy slots
 
   // Build the live battle: inventories, field state, the deploy clock, the
   // drag-and-drop handlers, and the per-frame tick+render loop.
@@ -1351,7 +1403,7 @@
       for (const s of squads) { if (s === att.s) continue;
         for (const u of s.field) if (u.hp > 0) cands.push({ s, u }); }
       if (!cands.length) return null;
-      if (Math.random() < CHAOS) return cands[Math.floor(Math.random()*cands.length)];
+      if (Math.random() < TUNING.global.chaos) return cands[Math.floor(Math.random()*cands.length)];
       let best=null, bd=Infinity;
       for (const c of cands){ const d=dist(att.u.fx,att.u.fy,c.u.fx,c.u.fy); if(d<bd){bd=d;best=c;} }
       return best;
@@ -1410,12 +1462,12 @@
           // too close → back away from the target (kite), still fire
           u.mvx = (u.fx-tgt.u.fx)/d; u.mvy = (u.fy-tgt.u.fy)/d; u.mv = 1;
           u.mvStop = null;   // retreating; no advance cap
-          if (u.cd<=0){ strikeLive(act.s,u,tgt); u.cd=COOLDOWN[u.type]||6; }
+          if (u.cd<=0){ strikeLive(act.s,u,tgt); u.cd=cooldownFor(u.type); }
         } else if (d <= u.range) {
           // in range → STOP advancing and hold, attack on cooldown. (Applies to
           // ranged and melee alike: once a target is in range, don't close further.)
           u.mv = 0;
-          if (u.cd<=0){ strikeLive(act.s,u,tgt); u.cd=COOLDOWN[u.type]||6; }
+          if (u.cd<=0){ strikeLive(act.s,u,tgt); u.cd=cooldownFor(u.type); }
         } else {
           // out of range → close on the target, but only up to the range edge,
           // so a ranged unit halts the instant the target enters its range.
@@ -1429,11 +1481,10 @@
     // CONTINUOUS movement: integrate every frame at the unit's own speed in
     // px/sec, along the intent the last tick set. This is what makes motion
     // smooth rather than stepping on the 18 Hz tick.
-    const SPEED_PXPS = 5.76;   // preserves the old pace (speed * MOVE_SCALE[0.32] * SIM_HZ[18])
     function moveStep(dt) {
       squads.forEach(s => { if (s.out) return; s.field.forEach(u => {
         if (u.hp<=0 || !u.mv) return;
-        let step = u.speed * SPEED_PXPS * dt;
+        let step = u.speed * TUNING.global.speedPxps * dt;
         if (u.mvStop != null) step = Math.min(step, u.mvStop + 1);  // don't overshoot into/through the target
         if (step <= 0) return;
         // Move freely — NO arena clamp. Any unit that walks off the battlefield
@@ -1541,7 +1592,7 @@
       if (!inArena(p.x, p.y)) { floatText({fx:p.x,fy:p.y}, "on the field!", "#ff6b5a"); return false; }
       const u = armed; armed = null; ghost = null; dragging = false;
       deployUnit(you, u, p.x, p.y);
-      you.deployTimer = DEPLOY_EVERY;
+      you.deployTimer = TUNING.global.deployEvery;
       renderBench(); updateDeployBar();
       return true;
     }
@@ -1566,7 +1617,7 @@
     let endHold = 0;
     // battle clock (sim seconds elapsed once everyone is on the field): forces a
     // resolution if two kiters would otherwise orbit forever.
-    let fightClock = 0; const FIGHT_CAP = 45;
+    let fightClock = 0;
 
     function finishLive() {
       // placement: survivors first (by remaining field HP), then eliminated reversed
@@ -1591,11 +1642,11 @@
           s.deployTimer -= dt;
           if (s.deployTimer <= 0) {
             if (s.you) {
-              if (autoAll) { aiDeploy(s); s.deployTimer = DEPLOY_EVERY; }
+              if (autoAll) { aiDeploy(s); s.deployTimer = TUNING.global.deployEvery; }
               // else: wait for the player's click; a soft chime the moment it opens
               else if (!s._readyPinged) { s._readyPinged = true; SND.ready(); }
             } else {
-              aiDeploy(s); s.deployTimer = DEPLOY_EVERY;
+              aiDeploy(s); s.deployTimer = TUNING.global.deployEvery;
             }
           } else { s._readyPinged = false; }
         });
@@ -1619,12 +1670,12 @@
         // broken by eliminating the weakest living squad (lowest total field HP).
         if (!anyUndeployed) {
           fightClock += dt;
-          if (fightClock >= FIGHT_CAP && living().length > 1) {
+          if (fightClock >= TUNING.global.fightCap && living().length > 1) {
             const weakest = living().sort((a,b)=>
               a.field.reduce((t,u)=>t+Math.max(0,u.hp),0) - b.field.reduce((t,u)=>t+Math.max(0,u.hp),0))[0];
             weakest.field.forEach(u=>{ if(!u.down) killUnit(weakest, u); });
             if (!weakest.out) { weakest.out = true; eliminationOrder.push(weakest); }
-            fightClock = FIGHT_CAP - 8;   // give the next-weakest a window before the next cull
+            fightClock = TUNING.global.fightCap - 8;   // give the next-weakest a window before the next cull
           }
         }
         const liveN = living().length;
@@ -2484,9 +2535,9 @@
 
       <h4>DEPLOYMENT — place your troops (drag &amp; drop)</h4>
       <ul>
-        <li><span class="tag">Every ${DEPLOY_EVERY}s</span> a deploy slot opens. <b>Drag</b> a troop from your bench onto the arena, or click one and then click the field — drop it <b>anywhere</b>.</li>
+        <li><span class="tag">Every ${TUNING.global.deployEvery}s</span> a deploy slot opens. <b>Drag</b> a troop from your bench onto the arena, or click one and then click the field — drop it <b>anywhere</b>.</li>
         <li><span class="tag">You choose</span> which troop goes first and exactly where it lands — hold your archers back, drop a tank up front, or flank.</li>
-        <li><span class="tag">Rivals</span> deploy one of their own troops every ${DEPLOY_EVERY}s too, so the field fills up as you fight.</li>
+        <li><span class="tag">Rivals</span> deploy one of their own troops every ${TUNING.global.deployEvery}s too, so the field fills up as you fight.</li>
         <li><span class="tag">Out</span> when a player has no troops left on the field <b>and</b> none in reserve, they are eliminated.</li>
         <li><span class="tag">Hurry?</span> hit <b>AUTO-DEPLOY REST</b> to let the game place your remaining troops for you.</li>
       </ul>
@@ -2522,6 +2573,58 @@
     $("scrIntro").classList.remove("hidden");
   }
 
+  // ---------- dev test panel: edit every unit metric + global knobs ----------
+  // Inputs are generated from TUNING. "Apply" reads them back into TUNING, so
+  // the next battle uses the edited numbers. "Reset" restores DEFAULT_TUNING.
+  const TP_PER = [
+    ["hpLo","HP min"], ["hpHi","HP max"], ["atkLo","ATK min"], ["atkHi","ATK max"],
+    ["range","Range"], ["speed","Speed"], ["cooldown","Cooldown"],
+  ];
+  const TP_GLOBAL = [
+    ["startGold","Start gold","1"], ["deployEvery","Deploy every (s)","0.5"],
+    ["speedPxps","Move pace","0.1"], ["fightCap","Stalemate cap (s)","1"],
+    ["chaos","Target chaos 0-1","0.01"],
+  ];
+  function numInput(id, val, step){ return `<input type="number" id="${id}" value="${val}" step="${step||"1"}" min="0">`; }
+  function buildTestPanel() {
+    const perRows = TYPES.map(type => {
+      const t = TUNING.perType[type];
+      const fields = TP_PER.map(([k,label]) =>
+        `<span class="tp-field"><label>${label}</label>${numInput(`tp_${type}_${k}`, t[k], (k==="speed"||k.startsWith("hp"))?"1":"1")}</span>`
+      ).join("");
+      return `<div class="tp-row"><span class="tp-name" style="color:${SLOT_COLORS[0].col}">${type}</span>${fields}</div>`;
+    }).join("");
+    const globRows = TP_GLOBAL.map(([k,label,step]) =>
+      `<div class="tp-row"><span class="tp-name" style="min-width:150px">${label}</span>${numInput(`tpg_${k}`, TUNING.global[k], step)}</div>`
+    ).join("");
+    $("testBody").innerHTML =
+      `<h4>PER-UNIT METRICS</h4>${perRows}` +
+      `<h4>GLOBAL KNOBS</h4>${globRows}`;
+  }
+  function applyTestPanel() {
+    const num = (id, fb) => { const el=$(id); const v=el?parseFloat(el.value):NaN; return isNaN(v)?fb:v; };
+    TYPES.forEach(type => {
+      const t = TUNING.perType[type];
+      TP_PER.forEach(([k]) => { t[k] = Math.max(0, num(`tp_${type}_${k}`, t[k])); });
+      // keep max >= min so random rolls don't invert
+      if (t.hpHi < t.hpLo) t.hpHi = t.hpLo;
+      if (t.atkHi < t.atkLo) t.atkHi = t.atkLo;
+      if (t.cooldown < 1) t.cooldown = 1;
+    });
+    TP_GLOBAL.forEach(([k]) => { TUNING.global[k] = Math.max(0, num(`tpg_${k}`, TUNING.global[k])); });
+    if (TUNING.global.deployEvery < 0.5) TUNING.global.deployEvery = 0.5;
+    if (TUNING.global.chaos > 1) TUNING.global.chaos = 1;
+    const m = $("testMsg"); if (m) { m.textContent = "Applied — the next battle uses these values."; setTimeout(()=>{ if(m) m.textContent=""; }, 2600); }
+  }
+  function resetTestPanel() {
+    TYPES.forEach(type => Object.assign(TUNING.perType[type], DEFAULT_TUNING.perType[type]));
+    Object.assign(TUNING.global, DEFAULT_TUNING.global);
+    buildTestPanel();
+    const m = $("testMsg"); if (m) { m.textContent = "Reset to defaults."; setTimeout(()=>{ if(m) m.textContent=""; }, 2600); }
+  }
+  function showTest() { buildTestPanel(); $("scrIntro").classList.add("hidden"); $("scrTest").classList.remove("hidden"); }
+  function hideTest() { $("scrTest").classList.add("hidden"); $("scrIntro").classList.remove("hidden"); }
+
   // ---------- wire up ----------
   function renderStatsLine(){ const sl = $("statsLine"); if (sl) sl.innerHTML = statsLine(); }
   function renderMuteBtn(){ const b = $("btnMute"); if (b) b.textContent = SND.muted ? "🔇 MUTED" : "🔊 SOUND"; }
@@ -2539,6 +2642,10 @@
   $("btnQuick").addEventListener("click", () => { gesture(); quickBattle(); });
   $("btnHowTo").addEventListener("click", () => { gesture(); showHowTo(); });
   $("btnHowToBack").addEventListener("click", () => { hideHowTo(); renderStatsLine(); });
+  $("btnTest").addEventListener("click", () => { gesture(); showTest(); });
+  $("btnTestApply").addEventListener("click", () => applyTestPanel());
+  $("btnTestReset").addEventListener("click", () => resetTestPanel());
+  $("btnTestBack").addEventListener("click", () => { hideTest(); renderStatsLine(); });
   $("btnMute").addEventListener("click", () => { SND.init(); SND.setMuted(!SND.muted); SND.resume(); renderMuteBtn(); if (!SND.muted) SND.bid(); });
   SND.init(); renderMuteBtn(); renderDiff();
   renderStatsLine();   // show lifetime record on the intro at load
